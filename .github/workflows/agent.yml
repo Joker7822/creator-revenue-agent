@@ -1,0 +1,60 @@
+name: Creator Revenue Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan | publish | metrics"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - publish
+          - metrics
+      job_id:
+        description: "Required when mode=publish"
+        required: false
+        type: string
+      window:
+        description: "Metrics window, e.g. 7d or 30d"
+        required: false
+        default: "7d"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run creator-revenue-agent
+        env:
+          CUSTOM_API_BASE_URL: ${{ secrets.CUSTOM_API_BASE_URL }}
+          CUSTOM_API_TOKEN: ${{ secrets.CUSTOM_API_TOKEN }}
+          REQUIRE_HUMAN_REVIEW: "true"
+          ALLOW_AUTO_PUBLISH: "false"
+        shell: bash
+        run: |
+          if [ "${{ inputs.mode }}" = "publish" ]; then
+            test -n "${{ inputs.job_id }}" || {
+              echo "job_id is required for publish"
+              exit 1
+            }
+            python scripts/run_agent.py               --mode publish               --job-id "${{ inputs.job_id }}"
+          elif [ "${{ inputs.mode }}" = "metrics" ]; then
+            python scripts/run_agent.py               --mode metrics               --window "${{ inputs.window }}"
+          else
+            python scripts/run_agent.py --mode plan
+          fi

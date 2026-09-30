@@ -1,0 +1,19 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+agent.db
+*.sqlite
+*.sqlite3
+
+# Generated/private assets must not enter Git.
+assets/
+media/
+output/
+generated/
+identity/
+consent/

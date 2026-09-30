@@ -16,6 +16,7 @@ GitHub Actions
     v
 Creator Revenue Agent
     |
+    +--> Local Guardrails
     +--> Content API
     +--> Policy API
     +--> Approval API
@@ -50,6 +51,15 @@ pip install -r requirements.txt
 cp .env.example .env
 python scripts/run_agent.py --mode plan
 ```
+
+## GitHub Actions secrets
+
+- `CUSTOM_API_BASE_URL`
+- `CUSTOM_API_TOKEN`
+
+Optional:
+
+- `DATABASE_URL`
 
 ## Repository
 
