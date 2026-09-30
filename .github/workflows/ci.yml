@@ -24,7 +24,9 @@ jobs:
 
       - name: Test
         env:
+          PYTHONPATH: .
           CUSTOM_API_BASE_URL: http://127.0.0.1:8000
           CUSTOM_API_TOKEN: test-token
           INTERNAL_API_TOKEN: test-token
+          DATABASE_URL: sqlite:///./ci-agent.db
         run: pytest -q

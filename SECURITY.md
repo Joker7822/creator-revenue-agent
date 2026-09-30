@@ -13,8 +13,16 @@
 - Require positive age verification before adult-content workflows continue.
 - Require documented consent.
 - Require separately verified consent for sexual depictions of real people.
+- Require policy success before an approval record can be created.
 - Keep human review enabled by default.
 - Do not use the system for coercive, exploitative, non-consensual, or otherwise illegal sexual material.
+
+## Approval and audit
+
+- Approval decisions store reviewer identity, reason and timestamps.
+- Decision events are added to the audit table.
+- The public API exposes no audit-delete operation.
+- Production databases should apply backup, retention and access-control policies separately.
 
 ## API security
 

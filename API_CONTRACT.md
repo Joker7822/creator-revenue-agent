@@ -11,11 +11,7 @@ Authorization: Bearer <INTERNAL_API_TOKEN>
 Content-Type: application/json
 ```
 
-The orchestrator uses `CUSTOM_API_TOKEN` when calling the API. Production deployments should prefer short-lived service credentials, HMAC request signing, or mTLS over a long-lived static token.
-
 ## GET /health
-
-No authentication is required.
 
 Response:
 
@@ -27,7 +23,9 @@ Response:
 
 ## POST /v1/content/generate
 
-**Current scope:** generate non-explicit campaign metadata only. This endpoint does not generate adult media assets.
+Current scope: non-explicit campaign metadata only.
+
+The resulting job is persisted before the API returns.
 
 Request:
 
@@ -44,88 +42,95 @@ Request:
 }
 ```
 
-Response:
-
-```json
-{
-  "job_id": "job_...",
-  "title": "Members Only Release campaign",
-  "teaser": "New members-only release for subscribers.",
-  "price_cents": 1500,
-  "creator_age": 21,
-  "age_verified": true,
-  "consent_verified": true,
-  "depicts_real_person": false,
-  "real_person_consent_verified": false,
-  "asset_ref": null
-}
-```
-
-The verification fields are part of the current MVP contract. In production they must come from a trusted internal verification system rather than self-asserted client input.
-
 ## POST /v1/policy/evaluate
+
+When `job_id` is provided, the result is persisted and an audit event is recorded.
+
+A job with a failed or missing policy result cannot enter approval.
+
+## POST /v1/approvals
 
 Request:
 
 ```json
 {
   "job_id": "job_123",
-  "creator_age": 21,
-  "age_verified": true,
-  "consent_verified": true,
-  "depicts_real_person": false,
-  "real_person_consent_verified": false,
-  "asset_ref": null
+  "required": true
 }
 ```
 
-Allowed response:
+Response:
 
 ```json
 {
-  "allowed": true,
-  "reasons": []
+  "job_id": "job_123",
+  "status": "pending_review",
+  "required": true,
+  "reviewer": null,
+  "reason": null,
+  "created_at": "2026-10-01T00:00:00Z",
+  "decided_at": null
 }
 ```
 
-Rejected example:
+The call is idempotent for an existing approval record.
+
+## GET /v1/approvals/{job_id}
+
+Returns current approval state.
+
+## POST /v1/approvals/{job_id}/approve
+
+Request:
 
 ```json
 {
-  "allowed": false,
-  "reasons": [
-    "adult_age_not_verified"
-  ]
+  "reviewer": "reviewer-1",
+  "reason": "verification complete"
 }
 ```
 
-Current rejection reasons include:
+## POST /v1/approvals/{job_id}/reject
 
-- `adult_age_not_verified`
-- `age_verification_required`
-- `creator_consent_required`
-- `real_person_consent_required`
-- `github_asset_storage_not_allowed`
+Request:
+
+```json
+{
+  "reviewer": "reviewer-2",
+  "reason": "manual review failed"
+}
+```
+
+## GET /v1/audit/{job_id}
+
+Returns ordered audit events for the job.
+
+Current event types:
+
+- `job_created`
+- `policy_evaluated`
+- `approval_created`
+- `approval_approved`
+- `approval_rejected`
+
+There is no audit-delete API.
+
+## Database state
+
+Current persisted entities:
+
+- job
+- policy result
+- approval
+- reviewer
+- decision reason
+- timestamps
+- audit events
 
 ## Planned endpoints
 
-### POST /v1/approvals
-Create a human-review item.
-
-### GET /v1/approvals/{job_id}
-Read approval state.
-
-### POST /v1/publish
-Publish an approved job.
-
-### POST /v1/products
-Create an internal billable product or offer.
-
-### GET /v1/revenue
-Return normalized proprietary transaction/revenue data.
-
-### POST /v1/events
-Record analytics and conversion events.
-
-### GET /v1/metrics?window=7d
-Return aggregate performance metrics.
+- `POST /v1/publish`
+- `POST /v1/products`
+- `GET /v1/revenue`
+- `POST /v1/events`
+- `GET /v1/metrics?window=7d`
