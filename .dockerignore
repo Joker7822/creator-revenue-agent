@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.env
+__pycache__
+.pytest_cache
+*.pyc
+*.sqlite
+*.sqlite3
+tests
+assets
+media
+output
+generated
+identity
+consent

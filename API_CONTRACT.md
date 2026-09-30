@@ -1,19 +1,33 @@
 # Proprietary API Contract
 
-All endpoints are owned and operated by the project. The examples below define the minimum contract expected by `creator-revenue-agent`.
+This document defines the internal API contract used by `creator-revenue-agent`.
 
 ## Authentication
 
-Default starter authentication:
+Protected endpoints require:
 
 ```http
-Authorization: Bearer <CUSTOM_API_TOKEN>
+Authorization: Bearer <INTERNAL_API_TOKEN>
 Content-Type: application/json
 ```
 
-For production, short-lived service credentials, HMAC signatures, or mTLS are preferable to a long-lived static token.
+The orchestrator uses `CUSTOM_API_TOKEN` when calling the API. Production deployments should prefer short-lived service credentials, HMAC request signing, or mTLS over a long-lived static token.
+
+## GET /health
+
+No authentication is required.
+
+Response:
+
+```json
+{
+  "status": "ok"
+}
+```
 
 ## POST /v1/content/generate
+
+**Current scope:** generate non-explicit campaign metadata only. This endpoint does not generate adult media assets.
 
 Request:
 
@@ -21,11 +35,37 @@ Request:
 {
   "campaign_type": "members_only_release",
   "target_segment": "subscribers",
-  "price_cents": 1500
+  "price_cents": 1500,
+  "creator_age": 21,
+  "age_verified": true,
+  "consent_verified": true,
+  "depicts_real_person": false,
+  "real_person_consent_verified": false
 }
 ```
 
 Response:
+
+```json
+{
+  "job_id": "job_...",
+  "title": "Members Only Release campaign",
+  "teaser": "New members-only release for subscribers.",
+  "price_cents": 1500,
+  "creator_age": 21,
+  "age_verified": true,
+  "consent_verified": true,
+  "depicts_real_person": false,
+  "real_person_consent_verified": false,
+  "asset_ref": null
+}
+```
+
+The verification fields are part of the current MVP contract. In production they must come from a trusted internal verification system rather than self-asserted client input.
+
+## POST /v1/policy/evaluate
+
+Request:
 
 ```json
 {
@@ -35,15 +75,11 @@ Response:
   "consent_verified": true,
   "depicts_real_person": false,
   "real_person_consent_verified": false,
-  "asset_ref": "asset_abc"
+  "asset_ref": null
 }
 ```
 
-`asset_ref` must refer to storage outside GitHub.
-
-## POST /v1/policy/evaluate
-
-Response:
+Allowed response:
 
 ```json
 {
@@ -52,78 +88,44 @@ Response:
 }
 ```
 
-## POST /v1/approvals
-
-Request:
+Rejected example:
 
 ```json
 {
-  "job_id": "job_123",
-  "required": true
+  "allowed": false,
+  "reasons": [
+    "adult_age_not_verified"
+  ]
 }
 ```
 
-Response:
+Current rejection reasons include:
 
-```json
-{
-  "job_id": "job_123",
-  "status": "pending_review"
-}
-```
+- `adult_age_not_verified`
+- `age_verification_required`
+- `creator_consent_required`
+- `real_person_consent_required`
+- `github_asset_storage_not_allowed`
 
-## GET /v1/approvals/{job_id}
+## Planned endpoints
 
-Response:
+### POST /v1/approvals
+Create a human-review item.
 
-```json
-{
-  "job_id": "job_123",
-  "status": "approved"
-}
-```
+### GET /v1/approvals/{job_id}
+Read approval state.
 
-## POST /v1/publish
+### POST /v1/publish
+Publish an approved job.
 
-Request:
+### POST /v1/products
+Create an internal billable product or offer.
 
-```json
-{
-  "job_id": "job_123"
-}
-```
+### GET /v1/revenue
+Return normalized proprietary transaction/revenue data.
 
-Response:
+### POST /v1/events
+Record analytics and conversion events.
 
-```json
-{
-  "job_id": "job_123",
-  "status": "published",
-  "publication_id": "pub_456"
-}
-```
-
-## POST /v1/products
-
-Creates an internal billable product or offer.
-
-## GET /v1/revenue
-
-Returns normalized proprietary transaction/revenue data.
-
-## POST /v1/events
-
-Records analytics and conversion events.
-
-## GET /v1/metrics?window=7d
-
-Response:
-
-```json
-{
-  "window": "7d",
-  "impressions": 10000,
-  "conversions": 250,
-  "revenue_cents": 375000
-}
-```
+### GET /v1/metrics?window=7d
+Return aggregate performance metrics.
