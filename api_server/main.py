@@ -8,6 +8,8 @@ from api_server.repository import (
     decide_approval,
     get_approval,
     get_audit_events,
+    get_publication,
+    publish_job,
     set_policy_result,
 )
 from api_server.schemas import (
@@ -19,6 +21,8 @@ from api_server.schemas import (
     ContentGenerateResponse,
     PolicyEvaluateRequest,
     PolicyEvaluateResponse,
+    PublicationResponse,
+    PublishRequest,
 )
 from api_server.services import (
     evaluate_policy,
@@ -30,7 +34,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 
@@ -147,6 +151,38 @@ def approval_reject(
             decision="rejected",
             reviewer=request.reviewer,
             reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/publish",
+    response_model=PublicationResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def publish(
+    request: PublishRequest,
+) -> PublicationResponse:
+    with SessionLocal() as session:
+        return publish_job(
+            session,
+            job_id=request.job_id,
+            destination=request.destination,
+            publisher=request.publisher,
+        )
+
+
+@app.get(
+    "/v1/publications/{job_id}",
+    response_model=PublicationResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def publication_get(
+    job_id: str,
+) -> PublicationResponse:
+    with SessionLocal() as session:
+        return get_publication(
+            session,
+            job_id,
         )
 
 

@@ -21,8 +21,8 @@ Creator Revenue Agent
            +--> Content Metadata API
            +--> Policy API
            +--> Approval API
+           +--> Publishing API
            +--> Audit API
-           +--> Publishing API     (next)
            +--> Billing API        (next)
            +--> Analytics API      (next)
     |
@@ -40,40 +40,54 @@ Implemented:
 - `GET /v1/approvals/{job_id}`
 - `POST /v1/approvals/{job_id}/approve`
 - `POST /v1/approvals/{job_id}/reject`
+- `POST /v1/publish`
+- `GET /v1/publications/{job_id}`
 - `GET /v1/audit/{job_id}`
 - bearer-token service authentication
-- persistent job, policy, approval and audit state
+- persistent job, policy, approval, publication and audit state
 - SQLite development database
 - SQLAlchemy persistence abstraction
 - FastAPI server
 - Docker image
 - pytest / GitHub Actions CI
 
-The current content endpoint generates **non-explicit campaign metadata only**. Explicit asset generation is intentionally not implemented before policy and approval controls are complete.
+The current content endpoint generates **non-explicit campaign metadata only**. The publishing endpoint records an approved internal publication state; external asset delivery adapters are not implemented yet.
+
+## Publishing gate
+
+A job can be published only when both conditions are true:
+
+```text
+policy_allowed == true
+AND
+approval.status == approved
+```
+
+Publishing is idempotent by `job_id`; repeated requests return the existing publication instead of creating duplicates.
 
 ## Core flow
 
 ```text
-Metadata generation
-       |
-       v
-Persistent Job
-       |
-       v
-Policy evaluation
-       |
-       v
-Approval request
-       |
-   +---+---+
-   |       |
-approve  reject
+Metadata
+   |
+   v
+Policy
+   |
+   v
+Approval
+   |
+   +---- rejected -> stop
+   |
+ approved
+   |
+   v
+Publication record
    |
    v
 Audit trail
    |
    v
-Publishing / asset generation (next)
+Billing / analytics (next)
 ```
 
 ## Database
@@ -84,12 +98,11 @@ Default development database:
 sqlite:///./agent.db
 ```
 
-Set `DATABASE_URL` to change the SQLAlchemy database backend.
-
-Database tables currently created:
+Database tables:
 
 - `jobs`
 - `approvals`
+- `publications`
 - `audit_events`
 
 For production, use a managed SQL database and schema migrations before deployment.
@@ -125,6 +138,7 @@ Authorization: Bearer <INTERNAL_API_TOKEN>
 - Require documented consent.
 - Real-person sexual depictions require separately verified consent.
 - Approval cannot be created until policy evaluation has passed.
+- Publishing cannot occur until approval is explicitly approved.
 - Human review is enabled by default.
 - Explicit assets must live outside GitHub.
 - Secrets and verification documents must never be committed.

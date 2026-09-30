@@ -27,35 +27,32 @@ Current scope: non-explicit campaign metadata only.
 
 The resulting job is persisted before the API returns.
 
-Request:
-
-```json
-{
-  "campaign_type": "members_only_release",
-  "target_segment": "subscribers",
-  "price_cents": 1500,
-  "creator_age": 21,
-  "age_verified": true,
-  "consent_verified": true,
-  "depicts_real_person": false,
-  "real_person_consent_verified": false
-}
-```
-
 ## POST /v1/policy/evaluate
 
 When `job_id` is provided, the result is persisted and an audit event is recorded.
 
-A job with a failed or missing policy result cannot enter approval.
+A job with a failed or missing policy result cannot enter approval or publication.
 
-## POST /v1/approvals
+## Approval endpoints
+
+- `POST /v1/approvals`
+- `GET /v1/approvals/{job_id}`
+- `POST /v1/approvals/{job_id}/approve`
+- `POST /v1/approvals/{job_id}/reject`
+
+A publication requires `approval.status == approved`.
+
+## POST /v1/publish
+
+Creates the internal publication record only after policy and approval gates pass.
 
 Request:
 
 ```json
 {
   "job_id": "job_123",
-  "required": true
+  "destination": "internal-storefront",
+  "publisher": "agent-1"
 }
 ```
 
@@ -63,73 +60,56 @@ Response:
 
 ```json
 {
+  "publication_id": "pub_...",
   "job_id": "job_123",
-  "status": "pending_review",
-  "required": true,
-  "reviewer": null,
-  "reason": null,
-  "created_at": "2026-10-01T00:00:00Z",
-  "decided_at": null
+  "status": "published",
+  "destination": "internal-storefront",
+  "publisher": "agent-1",
+  "published_at": "2026-10-01T00:00:00Z"
 }
 ```
 
-The call is idempotent for an existing approval record.
+Rules:
 
-## GET /v1/approvals/{job_id}
+- unknown job -> HTTP 404
+- policy not allowed/missing -> HTTP 409
+- approval missing/pending/rejected -> HTTP 409
+- approved -> publication created
+- repeated call for the same job -> same publication returned
 
-Returns current approval state.
+The current endpoint records internal publication state. It does not yet deliver explicit media to an external platform.
 
-## POST /v1/approvals/{job_id}/approve
+## GET /v1/publications/{job_id}
 
-Request:
-
-```json
-{
-  "reviewer": "reviewer-1",
-  "reason": "verification complete"
-}
-```
-
-## POST /v1/approvals/{job_id}/reject
-
-Request:
-
-```json
-{
-  "reviewer": "reviewer-2",
-  "reason": "manual review failed"
-}
-```
+Returns the existing publication for the job or HTTP 404.
 
 ## GET /v1/audit/{job_id}
 
 Returns ordered audit events for the job.
 
-Current event types:
+Current event types include:
 
 - `job_created`
 - `policy_evaluated`
 - `approval_created`
 - `approval_approved`
 - `approval_rejected`
-
-There is no audit-delete API.
+- `publication_published`
 
 ## Database state
 
-Current persisted entities:
+Persisted entities:
 
 - job
 - policy result
 - approval
 - reviewer
-- decision reason
+- publication
 - timestamps
 - audit events
 
 ## Planned endpoints
 
-- `POST /v1/publish`
 - `POST /v1/products`
 - `GET /v1/revenue`
 - `POST /v1/events`

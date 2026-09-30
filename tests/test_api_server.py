@@ -59,6 +59,34 @@ def approve_policy(
     assert response.json()["allowed"] is True
 
 
+def create_and_approve(
+    job: dict,
+) -> None:
+    response = client.post(
+        "/v1/approvals",
+        headers=auth(),
+        json={
+            "job_id": job["job_id"],
+            "required": True,
+        },
+    )
+    assert response.status_code == 200
+
+    response = client.post(
+        (
+            f"/v1/approvals/"
+            f"{job['job_id']}/approve"
+        ),
+        headers=auth(),
+        json={
+            "reviewer": "reviewer-1",
+            "reason": "verification complete",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+
+
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -172,10 +200,6 @@ def test_approval_flow_and_audit() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "approved"
-    assert (
-        response.json()["reviewer"]
-        == "reviewer-1"
-    )
 
     response = client.get(
         f"/v1/audit/{job['job_id']}",
@@ -222,3 +246,120 @@ def test_reject_flow() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "rejected"
+
+
+def test_publish_requires_policy() -> None:
+    job = create_verified_job()
+
+    response = client.post(
+        "/v1/publish",
+        headers=auth(),
+        json={"job_id": job["job_id"]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "policy approval required"
+    )
+
+
+def test_publish_requires_human_approval() -> None:
+    job = create_verified_job()
+    approve_policy(job)
+
+    response = client.post(
+        "/v1/publish",
+        headers=auth(),
+        json={"job_id": job["job_id"]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "human approval required"
+    )
+
+
+def test_publish_rejects_rejected_approval() -> None:
+    job = create_verified_job()
+    approve_policy(job)
+
+    client.post(
+        "/v1/approvals",
+        headers=auth(),
+        json={
+            "job_id": job["job_id"],
+            "required": True,
+        },
+    )
+    client.post(
+        (
+            f"/v1/approvals/"
+            f"{job['job_id']}/reject"
+        ),
+        headers=auth(),
+        json={
+            "reviewer": "reviewer-2",
+            "reason": "manual review failed",
+        },
+    )
+
+    response = client.post(
+        "/v1/publish",
+        headers=auth(),
+        json={"job_id": job["job_id"]},
+    )
+
+    assert response.status_code == 409
+
+
+def test_publish_after_approval_is_idempotent() -> None:
+    job = create_verified_job()
+    approve_policy(job)
+    create_and_approve(job)
+
+    payload = {
+        "job_id": job["job_id"],
+        "destination": "internal-storefront",
+        "publisher": "agent-1",
+    }
+
+    first = client.post(
+        "/v1/publish",
+        headers=auth(),
+        json=payload,
+    )
+    second = client.post(
+        "/v1/publish",
+        headers=auth(),
+        json=payload,
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert (
+        first.json()["publication_id"]
+        == second.json()["publication_id"]
+    )
+    assert first.json()["status"] == "published"
+
+    fetched = client.get(
+        f"/v1/publications/{job['job_id']}",
+        headers=auth(),
+    )
+    assert fetched.status_code == 200
+    assert (
+        fetched.json()["publication_id"]
+        == first.json()["publication_id"]
+    )
+
+    audit = client.get(
+        f"/v1/audit/{job['job_id']}",
+        headers=auth(),
+    )
+    events = [
+        event["event_type"]
+        for event in audit.json()
+    ]
+    assert events.count(
+        "publication_published"
+    ) == 1

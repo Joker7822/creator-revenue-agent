@@ -3,17 +3,24 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api_server.db import ApprovalRecord, AuditEvent, JobRecord
+from api_server.db import (
+    ApprovalRecord,
+    AuditEvent,
+    JobRecord,
+    PublicationRecord,
+)
 from api_server.schemas import (
     ApprovalResponse,
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    PublicationResponse,
 )
 
 
@@ -242,6 +249,96 @@ def decide_approval(
     session.commit()
     session.refresh(approval)
     return _approval_response(approval)
+
+
+def _publication_response(
+    record: PublicationRecord,
+) -> PublicationResponse:
+    return PublicationResponse(
+        publication_id=record.id,
+        job_id=record.job_id,
+        status=record.status,
+        destination=record.destination,
+        publisher=record.publisher,
+        published_at=record.published_at,
+    )
+
+
+def publish_job(
+    session: Session,
+    *,
+    job_id: str,
+    destination: str,
+    publisher: str,
+) -> PublicationResponse:
+    job = session.get(JobRecord, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="job not found",
+        )
+
+    if job.policy_allowed is not True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="policy approval required",
+        )
+
+    approval = session.get(ApprovalRecord, job_id)
+    if approval is None or approval.status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="human approval required",
+        )
+
+    existing = session.scalar(
+        select(PublicationRecord).where(
+            PublicationRecord.job_id == job_id
+        )
+    )
+    if existing is not None:
+        return _publication_response(existing)
+
+    publication = PublicationRecord(
+        id=f"pub_{uuid4().hex}",
+        job_id=job_id,
+        status="published",
+        destination=destination,
+        publisher=publisher,
+    )
+    session.add(publication)
+
+    add_audit(
+        session,
+        job_id=job_id,
+        event_type="publication_published",
+        actor=publisher,
+        payload={
+            "publication_id": publication.id,
+            "destination": destination,
+        },
+    )
+
+    session.commit()
+    session.refresh(publication)
+    return _publication_response(publication)
+
+
+def get_publication(
+    session: Session,
+    job_id: str,
+) -> PublicationResponse:
+    record = session.scalar(
+        select(PublicationRecord).where(
+            PublicationRecord.job_id == job_id
+        )
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="publication not found",
+        )
+    return _publication_response(record)
 
 
 def get_audit_events(

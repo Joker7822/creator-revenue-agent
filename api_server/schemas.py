@@ -91,6 +91,32 @@ class ApprovalResponse(BaseModel):
     decided_at: datetime | None
 
 
+class PublishRequest(BaseModel):
+    job_id: str = Field(
+        min_length=1,
+        max_length=128,
+    )
+    destination: str = Field(
+        default="internal",
+        min_length=1,
+        max_length=120,
+    )
+    publisher: str = Field(
+        default="agent",
+        min_length=1,
+        max_length=120,
+    )
+
+
+class PublicationResponse(BaseModel):
+    publication_id: str
+    job_id: str
+    status: str
+    destination: str
+    publisher: str
+    published_at: datetime
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

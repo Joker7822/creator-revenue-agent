@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import (
@@ -131,6 +132,43 @@ class ApprovalRecord(Base):
     decided_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class PublicationRecord(Base):
+    __tablename__ = "publications"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            name="uq_publications_job_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(128),
+        primary_key=True,
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="published",
+    )
+    destination: Mapped[str] = mapped_column(
+        String(120),
+        default="internal",
+    )
+    publisher: Mapped[str] = mapped_column(
+        String(120),
+        default="agent",
+    )
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
     )
 
 
