@@ -668,3 +668,8 @@ GET /v1/ops/metrics
 ```
 
 Production release gating also requires `EDGE_RATE_LIMIT_MODE=external`, so the process-local limiter cannot be treated as the only protection across replicas.
+
+
+## Kubernetes production baseline
+
+The repository now includes a hardened provider-neutral Kubernetes/Kustomize baseline under `deploy/kubernetes/`, including a separate Alembic migration Job and CI schema/hardening validation.

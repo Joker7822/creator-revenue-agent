@@ -244,3 +244,15 @@ High-risk workflow actions now use server-configured service identities and role
 - Prometheus metrics require the dedicated `metrics_reader` role.
 - Metric labels are bounded route templates and operational classes; concrete object IDs and sensitive request data are excluded.
 - Production release gating requires an external distributed edge-rate-limit mode in addition to process-local defense-in-depth limits.
+
+
+## Kubernetes workload hardening
+
+- The example namespace enforces Kubernetes Pod Security `restricted`.
+- Pods run as UID/GID 10001 with RuntimeDefault seccomp, no privilege escalation, all capabilities dropped, and a read-only root filesystem.
+- Service-account token automount is disabled because the application does not require Kubernetes API credentials.
+- Application secrets are projected read-only and consumed through `*_FILE` settings.
+- The migration Job uses the same non-root controls and mounts only the database credential.
+- NetworkPolicy limits ingress to same-namespace or explicitly labeled namespaces and restricts egress to DNS, HTTPS, and PostgreSQL ports.
+- Production operators should further restrict generic 443/5432 egress to provider-specific CIDRs or an FQDN/L7-aware CNI policy.
+- CI validates native Kubernetes schemas and hardening invariants on every change.

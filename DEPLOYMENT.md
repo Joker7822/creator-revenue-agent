@@ -264,3 +264,34 @@ EDGE_RATE_LIMIT_MODE=external
 ```
 
 `EDGE_RATE_LIMIT_MODE=external` is an explicit deployment contract: the process-local rate limiter remains defense in depth, while the production ingress/API gateway must provide distributed rate limiting across replicas, connection controls, and DDoS protection.
+
+
+## Kubernetes deployment baseline
+
+A provider-neutral hardened Kustomize base is available under:
+
+```text
+deploy/kubernetes/
+```
+
+It includes:
+
+- restricted Pod Security namespace
+- ServiceAccount token automount disabled
+- three-replica Deployment
+- zero-unavailable rolling updates
+- startup/liveness/readiness probes
+- CPU/memory requests and limits
+- read-only root filesystem
+- non-root UID/GID 10001
+- dropped Linux capabilities
+- RuntimeDefault seccomp
+- projected read-only Secret files
+- ClusterIP Service
+- PodDisruptionBudget
+- HPA
+- ingress/egress NetworkPolicy
+
+The Alembic migration Job is deliberately separate from the Deployment render. Run it once per release before rolling out application Pods.
+
+See `deploy/kubernetes/README.md` for the migration sequence, secret contract, namespace access label, immutable image pinning, and provider-specific egress tightening guidance.
