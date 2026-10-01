@@ -170,6 +170,11 @@ class VerificationWebhookEventRecord(Base):
         nullable=False,
         index=True,
     )
+    key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
     event_id: Mapped[str] = mapped_column(
         String(200),
         nullable=False,

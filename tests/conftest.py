@@ -60,14 +60,23 @@ os.environ.setdefault(
     "false",
 )
 os.environ.setdefault(
-    "VERIFICATION_WEBHOOK_SECRETS_JSON",
+    "VERIFICATION_WEBHOOK_KEYS_JSON",
     json.dumps(
         {
-            "provider-a": (
-                "provider-secret-0000000000000000000001"
-            )
+            "provider-a": {
+                "old": (
+                    "provider-old-secret-0000000000000000001"
+                ),
+                "new": (
+                    "provider-new-secret-0000000000000000002"
+                ),
+            }
         }
     ),
+)
+os.environ.setdefault(
+    "VERIFICATION_WEBHOOK_REQUIRE_KEY_ID",
+    "true",
 )
 os.environ.setdefault(
     "VERIFICATION_WEBHOOK_MAX_AGE_SECONDS",

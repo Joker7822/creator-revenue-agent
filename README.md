@@ -436,3 +436,45 @@ Supported events:
 - `verification.revoked`
 
 The verification mutation and webhook event ledger are committed in one transaction, including concurrent duplicate handling.
+
+
+## Verification webhook key rotation
+
+Verification webhook signing now supports a provider-specific key ring selected by `X-Verification-Key-Id`.
+
+Production configuration uses:
+
+```text
+VERIFICATION_WEBHOOK_KEYS_JSON={
+  "provider-a": {
+    "2026-09-retiring": "...",
+    "2026-10-current": "..."
+  }
+}
+VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=true
+```
+
+The signed bytes are:
+
+```text
+provider + "." + key_id + "." + unix_timestamp + "." + event_id + "." + raw_body
+```
+
+Rotation sequence:
+
+1. add the new key ID while retaining the old key
+2. update the provider to sign with the new key ID
+3. confirm new-key deliveries
+4. remove the old key from configuration
+
+Both configured keys are accepted during the overlap. Once the old key is removed, requests naming it receive HTTP 401.
+
+Accepted key IDs can be inspected without exposing secrets:
+
+```text
+GET /v1/auth/verification-webhook-keys
+```
+
+This endpoint requires `credential_admin`.
+
+For a temporary migration from the pre-`kid` signature format, set `VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=false` while exactly one key is configured. The steady-state production setting should be `true`.

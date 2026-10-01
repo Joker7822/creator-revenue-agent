@@ -115,6 +115,7 @@ from api_server.schemas import (
     VerificationCreateRequest,
     VerificationResponse,
     VerificationRevokeRequest,
+    VerificationWebhookKeyStatusResponse,
     VerificationWebhookResponse,
 )
 from api_server.services import evaluate_policy, generate_campaign_metadata
@@ -125,6 +126,7 @@ from api_server.verification import (
     revoke_verification,
 )
 from api_server.verification_webhooks import (
+    get_webhook_key_status,
     process_verification_webhook,
 )
 
@@ -137,7 +139,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.17.0",
+    version="0.18.0",
     lifespan=lifespan,
 )
 
@@ -218,6 +220,19 @@ def signing_key_status(
     return get_signing_key_status()
 
 
+@app.get(
+    "/v1/auth/verification-webhook-keys",
+    response_model=VerificationWebhookKeyStatusResponse,
+)
+def verification_webhook_key_status(
+    principal: ServicePrincipal = Depends(
+        require_roles("credential_admin")
+    ),
+) -> VerificationWebhookKeyStatusResponse:
+    del principal
+    return get_webhook_key_status()
+
+
 @app.post(
     "/v1/webhooks/verifications",
     response_model=VerificationWebhookResponse,
@@ -227,6 +242,10 @@ async def verification_provider_webhook(
     provider: str = Header(
         ...,
         alias="X-Verification-Provider",
+    ),
+    key_id: str | None = Header(
+        default=None,
+        alias="X-Verification-Key-Id",
     ),
     event_id: str = Header(
         ...,
@@ -246,6 +265,7 @@ async def verification_provider_webhook(
         return process_verification_webhook(
             session,
             provider=provider,
+            key_id=key_id,
             event_id=event_id,
             timestamp_value=timestamp_value,
             signature=signature,

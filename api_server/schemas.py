@@ -110,10 +110,16 @@ class VerificationWebhookPayload(BaseModel):
 
 class VerificationWebhookResponse(BaseModel):
     provider: str
+    key_id: str
     event_id: str
     event_type: str
     duplicate: bool
     verification: VerificationResponse
+
+
+class VerificationWebhookKeyStatusResponse(BaseModel):
+    key_id_required: bool
+    providers: dict[str, list[str]]
 
 
 class ApprovalCreateRequest(BaseModel):

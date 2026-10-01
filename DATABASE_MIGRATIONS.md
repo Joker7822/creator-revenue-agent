@@ -68,3 +68,8 @@ The new job columns are nullable so legacy rows remain readable. Production poli
 ## Verification webhook ledger revision
 
 Revision `20261001_0003` adds `verification_webhook_events`, including a unique provider/event-ID constraint, body SHA-256, linked verification record, persisted response snapshot, and receive timestamp.
+
+
+## Webhook key rotation revision
+
+Revision `20261001_0004` adds `verification_webhook_events.key_id` and its index. Existing event rows are backfilled to `legacy` before the column becomes non-nullable.

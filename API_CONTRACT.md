@@ -407,3 +407,30 @@ Replay protection rejects timestamps outside `VERIFICATION_WEBHOOK_MAX_AGE_SECON
 Idempotency is scoped by provider and event ID. An identical replay returns the persisted original result. The same event ID with a different body hash returns HTTP 409.
 
 Payload event types are `verification.verified` and `verification.revoked`. Provider record references, subject references, and verification kinds must match before an existing record can be revoked.
+
+
+## Verification webhook key rotation
+
+Webhook requests should include:
+
+```text
+X-Verification-Key-Id: <kid>
+```
+
+With a key ID present, canonical signed bytes are:
+
+```text
+<provider>.<key_id>.<timestamp>.<event_id>.<raw request body>
+```
+
+`VERIFICATION_WEBHOOK_KEYS_JSON` maps each provider to one or more accepted key IDs. Removing a key ID immediately causes requests naming that key to fail authentication.
+
+The event ledger records the key ID that authenticated the original delivery. An exact duplicate delivered later with another currently valid key still returns the original event result and its original recorded key ID.
+
+```text
+GET /v1/auth/verification-webhook-keys
+```
+
+returns only provider names and accepted key IDs, never secret material, and requires `credential_admin`.
+
+The legacy no-key-ID canonical form may be enabled only for migration with `VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=false` and exactly one accepted key for that provider.

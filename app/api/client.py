@@ -379,6 +379,14 @@ class CustomAPIClient:
             "/v1/auth/signing-keys",
         )
 
+    def get_verification_webhook_key_status(
+        self,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/auth/verification-webhook-keys",
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,

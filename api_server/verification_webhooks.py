@@ -20,6 +20,7 @@ from api_server.db import (
 )
 from api_server.schemas import (
     VerificationResponse,
+    VerificationWebhookKeyStatusResponse,
     VerificationWebhookPayload,
     VerificationWebhookResponse,
 )
@@ -29,19 +30,79 @@ from api_server.verification import (
 )
 
 
-def _provider_secrets() -> dict[str, str]:
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _validate_provider_keys(data: object) -> dict[str, dict[str, str]]:
+    if not isinstance(data, dict) or not data:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="verification webhook key configuration is invalid",
+        )
+
+    result: dict[str, dict[str, str]] = {}
+    for provider, keys in data.items():
+        if (
+            not isinstance(provider, str)
+            or not provider
+            or len(provider) > 120
+            or not isinstance(keys, dict)
+            or not keys
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="verification webhook key configuration is invalid",
+            )
+
+        normalized: dict[str, str] = {}
+        for key_id, secret_value in keys.items():
+            if (
+                not isinstance(key_id, str)
+                or not key_id
+                or len(key_id) > 120
+                or not isinstance(secret_value, str)
+                or len(secret_value) < 32
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="verification webhook key configuration is invalid",
+                )
+            normalized[key_id] = secret_value
+        result[provider] = normalized
+
+    return result
+
+
+def _provider_keys() -> dict[str, dict[str, str]]:
     raw = os.getenv(
+        "VERIFICATION_WEBHOOK_KEYS_JSON",
+        "",
+    ).strip()
+    if raw:
+        try:
+            return _validate_provider_keys(json.loads(raw))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="verification webhook key configuration is invalid",
+            ) from exc
+
+    legacy_raw = os.getenv(
         "VERIFICATION_WEBHOOK_SECRETS_JSON",
         "",
     ).strip()
-    if not raw:
+    if not legacy_raw:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="verification webhook secrets are not configured",
+            detail="verification webhook keys are not configured",
         )
 
     try:
-        data = json.loads(raw)
+        legacy = json.loads(legacy_raw)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -49,21 +110,44 @@ def _provider_secrets() -> dict[str, str]:
         ) from exc
 
     if (
-        not isinstance(data, dict)
-        or not data
+        not isinstance(legacy, dict)
+        or not legacy
         or not all(
             isinstance(provider, str)
             and provider
+            and len(provider) <= 120
             and isinstance(secret_value, str)
             and len(secret_value) >= 32
-            for provider, secret_value in data.items()
+            for provider, secret_value in legacy.items()
         )
     ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="verification webhook secret configuration is invalid",
         )
-    return data
+
+    return {
+        provider: {"legacy": secret_value}
+        for provider, secret_value in legacy.items()
+    }
+
+
+def _require_key_id() -> bool:
+    return _bool_env(
+        "VERIFICATION_WEBHOOK_REQUIRE_KEY_ID",
+        True,
+    )
+
+
+def get_webhook_key_status() -> VerificationWebhookKeyStatusResponse:
+    keys = _provider_keys()
+    return VerificationWebhookKeyStatusResponse(
+        key_id_required=_require_key_id(),
+        providers={
+            provider: sorted(provider_keys)
+            for provider, provider_keys in sorted(keys.items())
+        },
+    )
 
 
 def _max_age_seconds() -> int:
@@ -144,32 +228,84 @@ def _parse_timestamp(timestamp_value: str) -> int:
     return timestamp
 
 
+def _select_key(
+    *,
+    provider: str,
+    key_id: str | None,
+) -> tuple[str, str, bool]:
+    provider_keys = _provider_keys().get(provider)
+    if provider_keys is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="unknown verification webhook provider",
+        )
+
+    if key_id:
+        secret_value = provider_keys.get(key_id)
+        if secret_value is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="verification webhook signing key is not active",
+            )
+        return key_id, secret_value, False
+
+    if _require_key_id():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="verification webhook key id required",
+        )
+
+    if len(provider_keys) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="verification webhook key id required during rotation",
+        )
+
+    resolved_key_id, secret_value = next(
+        iter(provider_keys.items())
+    )
+    return resolved_key_id, secret_value, True
+
+
 def _verify_signature(
     *,
     provider: str,
+    key_id: str | None,
     event_id: str,
     timestamp_value: str,
     signature: str,
     body: bytes,
-) -> None:
+) -> str:
     if len(body) > _max_body_bytes():
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="verification webhook body too large",
         )
 
-    secret_value = _provider_secrets().get(provider)
-    if secret_value is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="unknown verification webhook provider",
+    resolved_key_id, secret_value, legacy_canonical = (
+        _select_key(
+            provider=provider,
+            key_id=key_id,
         )
+    )
 
     timestamp = _parse_timestamp(timestamp_value)
-    canonical = (
-        f"{provider}.{timestamp}.{event_id}.".encode("utf-8")
-        + body
-    )
+    if legacy_canonical:
+        canonical = (
+            f"{provider}.{timestamp}.{event_id}.".encode(
+                "utf-8"
+            )
+            + body
+        )
+    else:
+        canonical = (
+            (
+                f"{provider}.{resolved_key_id}."
+                f"{timestamp}.{event_id}."
+            ).encode("utf-8")
+            + body
+        )
+
     expected = hmac.new(
         secret_value.encode("utf-8"),
         canonical,
@@ -191,6 +327,8 @@ def _verify_signature(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid verification webhook signature",
         )
+
+    return resolved_key_id
 
 
 def _existing_provider_record(
@@ -220,6 +358,7 @@ def _duplicate_response(
     verification = VerificationResponse.model_validate(data)
     return VerificationWebhookResponse(
         provider=event.provider,
+        key_id=event.key_id,
         event_id=event.event_id,
         event_type=event.event_type,
         duplicate=True,
@@ -231,6 +370,7 @@ def process_verification_webhook(
     session: Session,
     *,
     provider: str,
+    key_id: str | None,
     event_id: str,
     timestamp_value: str,
     signature: str,
@@ -241,14 +381,22 @@ def process_verification_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invalid verification provider",
         )
+    if key_id is not None and (
+        not key_id or len(key_id) > 120
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid verification webhook key id",
+        )
     if not event_id or len(event_id) > 200:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invalid verification webhook event id",
         )
 
-    _verify_signature(
+    resolved_key_id = _verify_signature(
         provider=provider,
+        key_id=key_id,
         event_id=event_id,
         timestamp_value=timestamp_value,
         signature=signature,
@@ -326,6 +474,7 @@ def process_verification_webhook(
     event = VerificationWebhookEventRecord(
         id=f"vwh_{uuid4().hex}",
         provider=provider,
+        key_id=resolved_key_id,
         event_id=event_id,
         event_type=payload.event_type,
         body_sha256=body_sha256,
@@ -361,6 +510,7 @@ def process_verification_webhook(
 
     return VerificationWebhookResponse(
         provider=provider,
+        key_id=resolved_key_id,
         event_id=event_id,
         event_type=payload.event_type,
         duplicate=False,

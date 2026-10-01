@@ -122,3 +122,15 @@ High-risk workflow actions now use server-configured service identities and role
 - Concurrent duplicate delivery is resolved against the winning ledger record.
 - Webhook bodies are size-limited before JSON parsing.
 - Provider secrets belong in a secret manager; never commit real values.
+
+
+## Verification webhook key rotation
+
+- Webhook secrets are organized as provider-specific key rings.
+- `X-Verification-Key-Id` is covered by the HMAC signature and selects one accepted key.
+- Production should keep `VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=true`.
+- Multiple key IDs may overlap during a zero-downtime rotation.
+- Removing a retired key immediately stops authentication with that key.
+- The webhook ledger records the authenticating key ID for auditability.
+- The key-status endpoint exposes IDs only and never returns secret values.
+- Legacy no-key-ID verification is a temporary single-key migration mode only.
