@@ -212,10 +212,24 @@ def _limit(name: str, default: int) -> int:
 
 
 def request_body_limit_bytes() -> int:
-    return _limit(
+    raw = os.getenv(
         "MAX_REQUEST_BODY_BYTES",
-        1_048_576,
+        "1048576",
     )
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MAX_REQUEST_BODY_BYTES is invalid",
+        ) from exc
+
+    if value < 1 or value > 16_777_216:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MAX_REQUEST_BODY_BYTES is invalid",
+        )
+    return value
 
 
 def _subject_rate_limit(
