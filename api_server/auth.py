@@ -15,6 +15,8 @@ from uuid import uuid4
 from fastapi import Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from api_server.secret_source import read_secret_setting
+
 
 ALLOWED_ROLES = frozenset({
     "admin",
