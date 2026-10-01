@@ -6,7 +6,7 @@ This document defines the internal API contract used by `creator-revenue-agent`.
 
 Protected endpoints require a bearer service token.
 
-## Workflow endpoints
+## Workflow APIs
 
 ```text
 POST /v1/content/generate
@@ -17,74 +17,72 @@ POST /v1/approvals/{job_id}/approve
 POST /v1/approvals/{job_id}/reject
 POST /v1/publish
 GET  /v1/publications/{job_id}
-GET  /v1/audit/{job_id}
 ```
 
-## POST /v1/products
+## Billing APIs
 
-Creates a billable product for a published publication.
+```text
+POST /v1/products
+GET  /v1/products/{product_id}
+POST /v1/transactions
+GET  /v1/revenue
+```
+
+Transactions are the source of truth for purchases, refunds, and revenue.
+
+## POST /v1/events
+
+Records high-volume funnel events.
 
 Request:
 
 ```json
 {
+  "event_id": "evt_123",
   "publication_id": "pub_123",
-  "name": "Premium release",
-  "currency": "JPY",
-  "price_minor_units": 1500
+  "event_type": "impression",
+  "metadata": {
+    "source": "feed"
+  }
 }
 ```
+
+Supported event types:
+
+- `impression`
+- `click`
 
 Rules:
 
 - publication must exist and be published
-- currency is normalized to uppercase
-- monetary values are integers in currency minor units
+- `event_id` is the idempotency key
+- identical replay returns the existing event
+- same ID with different data returns HTTP 409
+- event metadata is stored as JSON
+- engagement events are not copied to the compliance audit table
 
-## GET /v1/products/{product_id}
+## GET /v1/metrics
 
-Returns a product.
-
-## POST /v1/transactions
-
-Records a proprietary billing event.
-
-Request:
-
-```json
-{
-  "transaction_id": "tx_order_123",
-  "product_id": "prod_123",
-  "kind": "sale",
-  "amount_minor_units": 1500,
-  "currency": "JPY",
-  "occurred_at": "2026-10-01T00:00:00Z"
-}
-```
-
-`kind` is either `sale` or `refund`.
-
-Rules:
-
-- product must exist and be active
-- transaction currency must equal product currency
-- `transaction_id` is the idempotency key
-- replaying identical data returns the existing transaction
-- replaying the same ID with different data returns HTTP 409
-
-## GET /v1/revenue
-
-Optional query:
+Examples:
 
 ```text
-?since=2026-10-01T00:00:00Z
+GET /v1/metrics?window=7d
+GET /v1/metrics?window=30d&publication_id=pub_123
 ```
 
 Response:
 
 ```json
 {
-  "since": null,
+  "window": "7d",
+  "since": "2026-09-24T00:00:00Z",
+  "publication_id": "pub_123",
+  "impressions": 10,
+  "clicks": 4,
+  "purchases": 2,
+  "refunds": 1,
+  "ctr": 0.4,
+  "cvr": 0.5,
   "currencies": [
     {
       "currency": "JPY",
@@ -98,18 +96,23 @@ Response:
 }
 ```
 
-Different currencies are never automatically converted or summed.
+Definitions:
 
-## Audit events
+```text
+CTR = clicks / impressions
+CVR = purchases / clicks
+```
 
-Billing adds:
+When the denominator is zero, the metric is `0.0`.
 
-- `product_created`
-- `transaction_recorded`
+Revenue remains separated by currency. No implicit FX conversion occurs.
+
+## Audit API
+
+```text
+GET /v1/audit/{job_id}
+```
 
 ## Planned next step
 
-Analytics endpoints:
-
-- `POST /v1/events`
-- `GET /v1/metrics?window=7d`
+Optimization layer using historical metrics while keeping policy and approval gates authoritative.

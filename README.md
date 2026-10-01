@@ -4,7 +4,7 @@ AI-powered creator revenue orchestration built around proprietary APIs.
 
 ## Scope
 
-This repository contains the orchestration layer, proprietary API server, persistence layer, CI/CD, API contracts, tests, and safety controls.
+This repository contains the orchestration layer, proprietary API server, persistence layer, CI/CD, API contracts, tests, safety controls, billing, and analytics.
 
 GitHub is used for source code and automation only. Do not commit generated adult media, identity documents, consent evidence, payment data, or secrets.
 
@@ -23,8 +23,8 @@ Creator Revenue Agent
            +--> Approval API
            +--> Publishing API
            +--> Billing API
+           +--> Analytics API
            +--> Audit API
-           +--> Analytics API      (next)
     |
     +--> SQL database
 ```
@@ -36,43 +36,72 @@ Implemented:
 - content metadata and policy APIs
 - human approval workflow
 - gated/idempotent publishing
-- products and proprietary transaction ingestion
+- products and proprietary billing transaction ingestion
 - revenue aggregation by currency
+- analytics event ingestion
+- CTR / CVR / purchase / refund / revenue metrics
 - audit trail
 - bearer-token service authentication
 - SQLite development database / SQLAlchemy abstraction
 - FastAPI / Docker / pytest / GitHub Actions CI
 
-## Billing model
+## Analytics model
 
-Money is stored as integer **minor units** plus a 3-letter currency code.
-
-Examples:
+High-volume engagement events are stored separately from the compliance audit log.
 
 ```text
-JPY 1500 -> ¥1,500
-USD 1500 -> $15.00
+POST /v1/events
+  impression
+  click
 ```
 
-The API never sums different currencies together. Revenue is returned in one bucket per currency.
-
-## Billing endpoints
+Purchases and refunds are not duplicated as analytics events. The Billing API is the source of truth:
 
 ```text
-POST /v1/products
-GET  /v1/products/{product_id}
 POST /v1/transactions
-GET  /v1/revenue
+  sale
+  refund
 ```
 
-A product can only be created for an existing published publication.
+`GET /v1/metrics` joins both sources.
 
-Transactions require a caller-supplied `transaction_id` and are idempotent. Reusing the same ID with different transaction data returns HTTP 409.
+Metrics include:
 
-Supported transaction kinds:
+- impressions
+- clicks
+- purchases
+- refunds
+- CTR = clicks / impressions
+- CVR = purchases / clicks
+- net revenue grouped by currency
 
-- `sale`
-- `refund`
+Different currencies are never automatically converted or summed.
+
+## Example
+
+```text
+10 impressions
+ 4 clicks
+ 2 purchases
+ 1 refund
+
+CTR = 4 / 10 = 0.40
+CVR = 2 / 4  = 0.50
+```
+
+## Analytics endpoints
+
+```text
+POST /v1/events
+GET  /v1/metrics?window=7d
+GET  /v1/metrics?window=30d&publication_id=pub_...
+```
+
+Supported window syntax:
+
+- `24h`
+- `7d`
+- `30d`
 
 ## Core flow
 
@@ -87,11 +116,15 @@ Publish
    |
 Product
    |
-Transaction
-   |
-Revenue by currency
-   |
-Analytics / optimization (next)
++--+-------------------+
+|                      |
+Engagement events   Transactions
+|                      |
++----------+-----------+
+           |
+        Metrics
+           |
+     Optimizer (next)
 ```
 
 ## Database tables
@@ -101,6 +134,7 @@ Analytics / optimization (next)
 - `publications`
 - `products`
 - `transactions`
+- `analytics_events`
 - `audit_events`
 
 For production, use a managed SQL database and schema migrations before deployment.

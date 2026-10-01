@@ -171,6 +171,29 @@ class TransactionRecord(Base):
     )
 
 
+class AnalyticsEventRecord(Base):
+    __tablename__ = "analytics_events"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    publication_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("publications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

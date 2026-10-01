@@ -127,9 +127,13 @@ class CustomAPIClient:
     def record_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/events", json=payload)
 
-    def get_metrics(self, *, window: str = "7d") -> dict[str, Any]:
-        return self._request(
-            "GET",
-            "/v1/metrics",
-            params={"window": window},
-        )
+    def get_metrics(
+        self,
+        *,
+        window: str = "7d",
+        publication_id: str | None = None,
+    ) -> dict[str, Any]:
+        params = {"window": window}
+        if publication_id:
+            params["publication_id"] = publication_id
+        return self._request("GET", "/v1/metrics", params=params)

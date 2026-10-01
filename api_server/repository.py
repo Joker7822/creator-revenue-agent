@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api_server.db import (
+    AnalyticsEventRecord,
     ApprovalRecord,
     AuditEvent,
     JobRecord,
@@ -19,10 +21,13 @@ from api_server.db import (
     TransactionRecord,
 )
 from api_server.schemas import (
+    AnalyticsEventResponse,
     ApprovalResponse,
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    MetricsCurrencySummary,
+    MetricsResponse,
     ProductResponse,
     PublicationResponse,
     RevenueCurrencySummary,
@@ -76,12 +81,7 @@ def create_job(
         real_person_consent_verified=response.real_person_consent_verified,
     )
     session.add(job)
-    add_audit(
-        session,
-        job_id=job.id,
-        event_type="job_created",
-        actor="system",
-    )
+    add_audit(session, job_id=job.id, event_type="job_created", actor="system")
     session.commit()
     session.refresh(job)
     return job
@@ -96,10 +96,7 @@ def set_policy_result(
 ) -> JobRecord:
     job = session.get(JobRecord, job_id)
     if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="job not found",
-        )
+        raise HTTPException(status_code=404, detail="job not found")
 
     job.policy_allowed = allowed
     job.policy_reasons_json = json.dumps(reasons, separators=(",", ":"))
@@ -455,6 +452,179 @@ def get_revenue(
         for currency, values in sorted(totals.items())
     ]
     return RevenueResponse(since=since, currencies=currencies)
+
+
+def _analytics_event_response(
+    record: AnalyticsEventRecord,
+) -> AnalyticsEventResponse:
+    return AnalyticsEventResponse(
+        event_id=record.id,
+        publication_id=record.publication_id,
+        event_type=record.event_type,
+        occurred_at=record.occurred_at,
+        recorded_at=record.recorded_at,
+    )
+
+
+def record_analytics_event(
+    session: Session,
+    *,
+    event_id: str,
+    publication_id: str,
+    event_type: str,
+    occurred_at: datetime | None,
+    metadata: dict[str, Any],
+) -> AnalyticsEventResponse:
+    publication = session.get(PublicationRecord, publication_id)
+    if publication is None or publication.status != "published":
+        raise HTTPException(
+            status_code=409,
+            detail="published publication required",
+        )
+
+    metadata_json = json.dumps(
+        metadata,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    existing = session.get(AnalyticsEventRecord, event_id)
+    if existing is not None:
+        same = (
+            existing.publication_id == publication_id
+            and existing.event_type == event_type
+            and existing.metadata_json == metadata_json
+        )
+        if not same:
+            raise HTTPException(
+                status_code=409,
+                detail="event idempotency conflict",
+            )
+        return _analytics_event_response(existing)
+
+    event = AnalyticsEventRecord(
+        id=event_id,
+        publication_id=publication_id,
+        event_type=event_type,
+        metadata_json=metadata_json,
+        occurred_at=occurred_at or utcnow(),
+    )
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return _analytics_event_response(event)
+
+
+def _window_since(window: str) -> datetime:
+    match = re.fullmatch(r"([1-9][0-9]*)([dh])", window)
+    if match is None:
+        raise HTTPException(
+            status_code=400,
+            detail="window must look like 24h, 7d, or 30d",
+        )
+
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if (unit == "d" and amount > 3650) or (
+        unit == "h" and amount > 87600
+    ):
+        raise HTTPException(status_code=400, detail="window too large")
+
+    delta = (
+        timedelta(days=amount)
+        if unit == "d"
+        else timedelta(hours=amount)
+    )
+    return utcnow() - delta
+
+
+def get_metrics(
+    session: Session,
+    *,
+    window: str,
+    publication_id: str | None,
+) -> MetricsResponse:
+    since = _window_since(window)
+
+    event_statement = select(AnalyticsEventRecord).where(
+        AnalyticsEventRecord.occurred_at >= since
+    )
+    if publication_id:
+        publication = session.get(PublicationRecord, publication_id)
+        if publication is None:
+            raise HTTPException(status_code=404, detail="publication not found")
+        event_statement = event_statement.where(
+            AnalyticsEventRecord.publication_id == publication_id
+        )
+
+    events = session.scalars(event_statement).all()
+    impressions = sum(1 for event in events if event.event_type == "impression")
+    clicks = sum(1 for event in events if event.event_type == "click")
+
+    transaction_statement = (
+        select(TransactionRecord, ProductRecord)
+        .join(
+            ProductRecord,
+            TransactionRecord.product_id == ProductRecord.id,
+        )
+        .where(TransactionRecord.occurred_at >= since)
+    )
+    if publication_id:
+        transaction_statement = transaction_statement.where(
+            ProductRecord.publication_id == publication_id
+        )
+
+    rows = session.execute(transaction_statement).all()
+    purchases = 0
+    refunds = 0
+    totals: dict[str, dict[str, int]] = defaultdict(
+        lambda: {
+            "sales_count": 0,
+            "refund_count": 0,
+            "sales_minor_units": 0,
+            "refunds_minor_units": 0,
+        }
+    )
+
+    for transaction, _product in rows:
+        bucket = totals[transaction.currency]
+        if transaction.kind == "sale":
+            purchases += 1
+            bucket["sales_count"] += 1
+            bucket["sales_minor_units"] += transaction.amount_minor_units
+        elif transaction.kind == "refund":
+            refunds += 1
+            bucket["refund_count"] += 1
+            bucket["refunds_minor_units"] += transaction.amount_minor_units
+
+    currencies = [
+        MetricsCurrencySummary(
+            currency=currency,
+            sales_count=values["sales_count"],
+            refund_count=values["refund_count"],
+            sales_minor_units=values["sales_minor_units"],
+            refunds_minor_units=values["refunds_minor_units"],
+            net_revenue_minor_units=(
+                values["sales_minor_units"] - values["refunds_minor_units"]
+            ),
+        )
+        for currency, values in sorted(totals.items())
+    ]
+
+    ctr = clicks / impressions if impressions else 0.0
+    cvr = purchases / clicks if clicks else 0.0
+
+    return MetricsResponse(
+        window=window,
+        since=since,
+        publication_id=publication_id,
+        impressions=impressions,
+        clicks=clicks,
+        purchases=purchases,
+        refunds=refunds,
+        ctr=ctr,
+        cvr=cvr,
+        currencies=currencies,
+    )
 
 
 def get_audit_events(

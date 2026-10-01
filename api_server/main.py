@@ -11,20 +11,25 @@ from api_server.repository import (
     decide_approval,
     get_approval,
     get_audit_events,
+    get_metrics,
     get_product,
     get_publication,
     get_revenue,
     publish_job,
+    record_analytics_event,
     record_transaction,
     set_policy_result,
 )
 from api_server.schemas import (
+    AnalyticsEventCreateRequest,
+    AnalyticsEventResponse,
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     ApprovalResponse,
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    MetricsResponse,
     PolicyEvaluateRequest,
     PolicyEvaluateResponse,
     ProductCreateRequest,
@@ -42,7 +47,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.5.0",
+    version="0.6.0",
 )
 
 
@@ -228,6 +233,42 @@ def transaction_create(
 def revenue_get(since: datetime | None = None) -> RevenueResponse:
     with SessionLocal() as session:
         return get_revenue(session, since=since)
+
+
+@app.post(
+    "/v1/events",
+    response_model=AnalyticsEventResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def event_create(
+    request: AnalyticsEventCreateRequest,
+) -> AnalyticsEventResponse:
+    with SessionLocal() as session:
+        return record_analytics_event(
+            session,
+            event_id=request.event_id,
+            publication_id=request.publication_id,
+            event_type=request.event_type,
+            occurred_at=request.occurred_at,
+            metadata=request.metadata,
+        )
+
+
+@app.get(
+    "/v1/metrics",
+    response_model=MetricsResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def metrics_get(
+    window: str = "7d",
+    publication_id: str | None = None,
+) -> MetricsResponse:
+    with SessionLocal() as session:
+        return get_metrics(
+            session,
+            window=window,
+            publication_id=publication_id,
+        )
 
 
 @app.get(

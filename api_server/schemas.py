@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -142,6 +142,44 @@ class RevenueCurrencySummary(BaseModel):
 class RevenueResponse(BaseModel):
     since: datetime | None
     currencies: list[RevenueCurrencySummary]
+
+
+class AnalyticsEventCreateRequest(BaseModel):
+    event_id: str = Field(min_length=1, max_length=128)
+    publication_id: str = Field(min_length=1, max_length=128)
+    event_type: Literal["impression", "click"]
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalyticsEventResponse(BaseModel):
+    event_id: str
+    publication_id: str
+    event_type: str
+    occurred_at: datetime
+    recorded_at: datetime
+
+
+class MetricsCurrencySummary(BaseModel):
+    currency: str
+    sales_count: int
+    refund_count: int
+    sales_minor_units: int
+    refunds_minor_units: int
+    net_revenue_minor_units: int
+
+
+class MetricsResponse(BaseModel):
+    window: str
+    since: datetime
+    publication_id: str | None
+    impressions: int
+    clicks: int
+    purchases: int
+    refunds: int
+    ctr: float
+    cvr: float
+    currencies: list[MetricsCurrencySummary]
 
 
 class AuditEventResponse(BaseModel):
