@@ -373,6 +373,12 @@ class CustomAPIClient:
             json={"reason": reason},
         )
 
+    def get_operational_status(self) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/ops/status",
+        )
+
     def get_readiness(self) -> dict[str, Any]:
         return self._request(
             "GET",

@@ -522,3 +522,25 @@ State-changing endpoints use row-level locking where supported and optimistic `s
 A stale conflicting writer is rejected with HTTP 409 instead of silently overwriting a newer state. Exact idempotent create/apply/rollback retries converge on the already-created resource when its uniqueness constraint has already won a concurrent race.
 
 `GET /ready` includes the `database_concurrency` check. When `PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true`, SQLite does not satisfy production readiness.
+
+
+## Observability
+
+All HTTP responses include:
+
+```text
+X-Request-ID: <bounded request correlation id>
+X-Trace-ID: <32 hex trace id>
+```
+
+A syntactically valid inbound `X-Request-ID` is retained. A valid W3C `traceparent` trace ID is retained; otherwise the service generates a new trace ID.
+
+```text
+GET /v1/ops/status
+```
+
+requires service authentication and returns process-local operational counters and alert evaluation. Route metrics use FastAPI route templates rather than literal resource IDs.
+
+Error classes are grouped into authentication rejection, state conflict, validation error, dependency/availability failure, server error, and general client error.
+
+The alert list includes the current count, configured threshold, severity, and triggered state for each incident signal. Thresholds are configured with `OPS_ALERT_*_THRESHOLD` environment variables.

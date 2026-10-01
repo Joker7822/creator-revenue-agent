@@ -18,6 +18,7 @@ from api_server.audit_integrity import (
     compute_head_hash,
     verify_audit_chain,
 )
+from api_server.observability import outbound_trace_headers
 from api_server.db import (
     AuditAnchorReceiptRecord,
     AuditChainState,
@@ -173,6 +174,7 @@ def _http_client() -> httpx.Client:
         headers={
             "Authorization": f"Bearer {_token()}",
             "Accept": "application/json",
+            **outbound_trace_headers(),
         },
     )
 

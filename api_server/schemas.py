@@ -663,3 +663,31 @@ class AuditIntegrityResponse(BaseModel):
     head_hash: str
     first_invalid_event_id: int | None
     reason: str | None
+
+
+
+class OperationalRouteMetric(BaseModel):
+    route: str
+    requests: int
+    errors: int
+    average_duration_ms: float
+    max_duration_ms: float
+
+
+class OperationalAlertStatus(BaseModel):
+    signal: str
+    severity: Literal["warning", "critical"]
+    count: int
+    threshold: int
+    triggered: bool
+
+
+class OperationalStatusResponse(BaseModel):
+    healthy: bool
+    uptime_seconds: float
+    requests_total: int
+    status_classes: dict[str, int]
+    errors_by_class: dict[str, int]
+    incident_signals: dict[str, int]
+    routes: list[OperationalRouteMetric]
+    alerts: list[OperationalAlertStatus]

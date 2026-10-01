@@ -559,6 +559,22 @@ def test_rollback_blocks_stale_production_state(
     assert monitor.status_code == 200
     assert monitor.json()["monitoring_status"] == "state_drift"
 
+    ops = client.get(
+        "/v1/ops/status",
+        headers=auth(),
+    )
+    assert ops.status_code == 200
+    assert (
+        ops.json()["incident_signals"]["rollout_state_drift"]
+        == 1
+    )
+    drift_alert = next(
+        row
+        for row in ops.json()["alerts"]
+        if row["signal"] == "rollout_state_drift"
+    )
+    assert drift_alert["triggered"] is True
+
     response = client.post(
         (
             f"/v1/rollouts/"

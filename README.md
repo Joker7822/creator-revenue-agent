@@ -574,3 +574,29 @@ PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true
 ```
 
 SQLite remains supported for local development and CI, where optimistic version checks still reject stale writes, but it is not considered a row-locking production database.
+
+
+## Observability and incident diagnostics
+
+Every HTTP request receives correlation headers:
+
+```text
+X-Request-ID
+X-Trace-ID
+```
+
+A valid caller-provided `X-Request-ID` is preserved. W3C `traceparent` is accepted and its trace ID is propagated. Outbound audit-anchor calls carry the same request ID and trace ID.
+
+Request completion is emitted as a structured JSON log event containing only bounded operational fields: method, route template, status code, duration, request ID, and trace ID. Authorization headers and request bodies are not logged.
+
+Authenticated operators can inspect process-local operational telemetry:
+
+```text
+GET /v1/ops/status
+```
+
+The endpoint reports request/status counters, error classes, route-template latency summaries, incident signals, and configured alert thresholds. Dynamic resource IDs are never used as metric labels.
+
+Incident signals include authentication rejection, verification-webhook rejection, audit-anchor failure, rollout apply failure, rollout state drift, rollback failure, readiness failure, and server/dependency 5xx.
+
+These counters are process-local and reset on restart. Production should export the structured logs and status metrics to durable monitoring/alerting infrastructure.

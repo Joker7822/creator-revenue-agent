@@ -227,6 +227,9 @@ from api_server.db import Base, engine
 
 @pytest.fixture(autouse=True)
 def clean_database():
+    from api_server.observability import operational_metrics
+
+    operational_metrics.reset()
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(table.delete())

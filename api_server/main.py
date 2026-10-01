@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
+from time import perf_counter
 
 from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi.responses import JSONResponse
 
 from api_server.audit_anchor import (
     audit_anchor_freshness,
@@ -35,6 +37,16 @@ from api_server.experiments import (
     link_experiment_transaction,
     record_experiment_event,
     start_experiment,
+)
+from api_server.observability import (
+    bind_request_context,
+    log_request_completed,
+    log_unhandled_exception,
+    operational_metrics,
+    operational_status_snapshot,
+    request_route_template,
+    reset_request_context,
+    resolve_request_context,
 )
 from api_server.optimizer import (
     create_optimization_proposal,
@@ -105,6 +117,7 @@ from api_server.schemas import (
     ExperimentTransactionLinkRequest,
     ExperimentTransactionLinkResponse,
     MetricsResponse,
+    OperationalStatusResponse,
     OptimizationDecisionRequest,
     OptimizationProposalCreateRequest,
     OptimizationProposalResponse,
@@ -151,14 +164,89 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.22.0",
+    version="0.23.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def observability_middleware(
+    request: Request,
+    call_next,
+):
+    context = resolve_request_context(
+        request_id_header=request.headers.get("X-Request-ID"),
+        traceparent_header=request.headers.get("traceparent"),
+    )
+    tokens = bind_request_context(context)
+    started = perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (perf_counter() - started) * 1000
+        route = request_route_template(request.scope)
+        operational_metrics.record(
+            method=request.method,
+            route=route,
+            status_code=500,
+            duration_ms=duration_ms,
+        )
+        log_unhandled_exception(
+            method=request.method,
+            route=route,
+            duration_ms=duration_ms,
+            exception_type=type(exc).__name__,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "internal server error",
+                "error_code": "internal_server_error",
+                "request_id": context.request_id,
+                "trace_id": context.trace_id,
+            },
+            headers={
+                "X-Request-ID": context.request_id,
+                "X-Trace-ID": context.trace_id,
+            },
+        )
+    else:
+        duration_ms = (perf_counter() - started) * 1000
+        route = request_route_template(request.scope)
+        operational_metrics.record(
+            method=request.method,
+            route=route,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+        log_request_completed(
+            method=request.method,
+            route=route,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+        response.headers["X-Request-ID"] = context.request_id
+        response.headers["X-Trace-ID"] = context.trace_id
+        return response
+    finally:
+        reset_request_context(tokens)
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get(
+    "/v1/ops/status",
+    response_model=OperationalStatusResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def operational_status() -> OperationalStatusResponse:
+    return OperationalStatusResponse.model_validate(
+        operational_status_snapshot()
+    )
 
 
 @app.get(

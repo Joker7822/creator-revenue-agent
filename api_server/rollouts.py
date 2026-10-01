@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from api_server.audit_anchor import assert_audit_anchor_fresh
+from api_server.observability import operational_metrics
 from api_server.db import (
     AnalyticsEventRecord,
     ChangeSetRecord,
@@ -588,6 +589,10 @@ def monitor_rollout(
         if current_state == expected_state
         else "state_drift"
     )
+    if monitoring_status == "state_drift":
+        operational_metrics.record_signal(
+            "rollout_state_drift"
+        )
 
     publication_id = experiment.publication_id
     event_statement = select(AnalyticsEventRecord).where(

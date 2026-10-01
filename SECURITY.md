@@ -179,3 +179,15 @@ High-risk workflow actions now use server-configured service identities and role
 - Unique constraints remain the final idempotency guard for concurrent resource creation.
 - Production should use a row-locking transactional database such as PostgreSQL and keep `PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true`.
 - SQLite is retained for local development and CI only; its locking semantics are not treated as production-equivalent.
+
+
+## Observability security
+
+- Request correlation accepts only bounded characters and length; invalid caller request IDs are replaced.
+- W3C trace IDs are validated before reuse.
+- HTTP telemetry uses route templates rather than literal object IDs to prevent high-cardinality identifier leakage.
+- Structured request logs do not contain request bodies, bearer tokens, authorization headers, webhook signatures, or configured secrets.
+- External audit-anchor calls propagate correlation identifiers but not inbound authorization credentials.
+- `GET /v1/ops/status` requires service authentication.
+- Operational counters are process-local and are not an audit system. Security and compliance history remains in the authenticated audit chain/WORM anchor.
+- Rollout `state_drift` is an incident signal even though the monitor endpoint itself returns HTTP 200.
