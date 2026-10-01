@@ -138,6 +138,48 @@ class CustomAPIClient:
             params["publication_id"] = publication_id
         return self._request("GET", "/v1/metrics", params=params)
 
+    def create_experiment(
+        self,
+        *,
+        proposal_id: str,
+        recommendation_index: int,
+        owner: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/experiments",
+            json={
+                "proposal_id": proposal_id,
+                "recommendation_index": recommendation_index,
+                "owner": owner,
+            },
+        )
+
+    def start_experiment(
+        self,
+        experiment_id: str,
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/start",
+            json={"actor": actor},
+        )
+
+    def complete_experiment(
+        self,
+        experiment_id: str,
+        *,
+        actor: str,
+        outcome: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/complete",
+            json={"actor": actor, "outcome": outcome},
+        )
+
     def create_optimization_proposal(
         self,
         *,

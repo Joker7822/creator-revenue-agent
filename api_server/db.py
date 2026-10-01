@@ -230,6 +230,58 @@ class OptimizationProposalRecord(Base):
     )
 
 
+class ExperimentRecord(Base):
+    __tablename__ = "experiments"
+    __table_args__ = (
+        UniqueConstraint(
+            "proposal_id",
+            "recommendation_index",
+            name="uq_experiment_proposal_recommendation",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("optimization_proposals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    publication_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("publications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    recommendation_index: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="draft",
+        index=True,
+    )
+    plan_json: Mapped[str] = mapped_column(Text)
+    owner: Mapped[str] = mapped_column(String(120))
+    outcome_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

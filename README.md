@@ -124,7 +124,11 @@ Engagement events   Transactions
            |
         Metrics
            |
-     Optimizer (next)
+     Optimizer
+        |
+   Human Review
+        |
+     Experiment
 ```
 
 ## Database tables
@@ -167,3 +171,20 @@ pytest -q
 ## Repository
 
 `Joker7822/creator-revenue-agent`
+
+
+## Experiment layer
+
+Approved optimizer recommendations can be converted into experiment records.
+
+```text
+approved proposal
+      |
+    draft
+      |
+   running
+    /   \
+completed cancelled
+```
+
+Experiment state changes do not automatically change price, content, publishing, or traffic routing.

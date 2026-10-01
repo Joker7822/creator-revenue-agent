@@ -206,6 +206,41 @@ class OptimizationProposalResponse(BaseModel):
     decided_at: datetime | None
 
 
+class ExperimentCreateRequest(BaseModel):
+    proposal_id: str = Field(min_length=1, max_length=128)
+    recommendation_index: int = Field(ge=0)
+    owner: str = Field(min_length=1, max_length=120)
+
+
+class ExperimentActorRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class ExperimentCompleteRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    outcome: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExperimentCancelRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class ExperimentResponse(BaseModel):
+    experiment_id: str
+    proposal_id: str
+    publication_id: str
+    product_id: str
+    recommendation_index: int
+    status: str
+    plan: dict[str, Any]
+    owner: str
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    outcome: dict[str, Any] | None
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

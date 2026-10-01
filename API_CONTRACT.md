@@ -116,3 +116,24 @@ GET /v1/audit/{job_id}
 ## Planned next step
 
 Optimization layer using historical metrics while keeping policy and approval gates authoritative.
+
+
+## Experiment APIs
+
+```text
+POST /v1/experiments
+GET  /v1/experiments/{experiment_id}
+POST /v1/experiments/{experiment_id}/start
+POST /v1/experiments/{experiment_id}/complete
+POST /v1/experiments/{experiment_id}/cancel
+```
+
+Creation requires an approved optimizer proposal and an experimentable recommendation.
+
+Supported experiment plan types:
+
+- price test
+- non-explicit teaser test
+- posting-time test
+
+Experiments are records/plans only. Starting one does not mutate product price, replace content, publish, or route live traffic.

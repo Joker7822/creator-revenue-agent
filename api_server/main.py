@@ -4,6 +4,13 @@ from fastapi import Depends, FastAPI
 
 from api_server.auth import require_service_token
 from api_server.db import SessionLocal, init_db
+from api_server.experiments import (
+    cancel_experiment,
+    complete_experiment,
+    create_experiment,
+    get_experiment,
+    start_experiment,
+)
 from api_server.optimizer import (
     create_optimization_proposal,
     decide_optimization_proposal,
@@ -34,6 +41,11 @@ from api_server.schemas import (
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    ExperimentActorRequest,
+    ExperimentCancelRequest,
+    ExperimentCompleteRequest,
+    ExperimentCreateRequest,
+    ExperimentResponse,
     MetricsResponse,
     OptimizationDecisionRequest,
     OptimizationProposalCreateRequest,
@@ -55,7 +67,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.7.0",
+    version="0.8.0",
 )
 
 
@@ -341,6 +353,88 @@ def optimizer_proposal_reject(
             proposal_id=proposal_id,
             decision="rejected",
             reviewer=request.reviewer,
+            reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/experiments",
+    response_model=ExperimentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_create(
+    request: ExperimentCreateRequest,
+) -> ExperimentResponse:
+    with SessionLocal() as session:
+        return create_experiment(
+            session,
+            proposal_id=request.proposal_id,
+            recommendation_index=request.recommendation_index,
+            owner=request.owner,
+        )
+
+
+@app.get(
+    "/v1/experiments/{experiment_id}",
+    response_model=ExperimentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_get(
+    experiment_id: str,
+) -> ExperimentResponse:
+    with SessionLocal() as session:
+        return get_experiment(session, experiment_id)
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/start",
+    response_model=ExperimentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_start(
+    experiment_id: str,
+    request: ExperimentActorRequest,
+) -> ExperimentResponse:
+    with SessionLocal() as session:
+        return start_experiment(
+            session,
+            experiment_id=experiment_id,
+            actor=request.actor,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/complete",
+    response_model=ExperimentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_complete(
+    experiment_id: str,
+    request: ExperimentCompleteRequest,
+) -> ExperimentResponse:
+    with SessionLocal() as session:
+        return complete_experiment(
+            session,
+            experiment_id=experiment_id,
+            actor=request.actor,
+            outcome=request.outcome,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/cancel",
+    response_model=ExperimentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_cancel(
+    experiment_id: str,
+    request: ExperimentCancelRequest,
+) -> ExperimentResponse:
+    with SessionLocal() as session:
+        return cancel_experiment(
+            session,
+            experiment_id=experiment_id,
+            actor=request.actor,
             reason=request.reason,
         )
 
