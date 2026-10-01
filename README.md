@@ -689,3 +689,8 @@ See `SUPPLY_CHAIN.md`.
 Semantic release tags trigger `.github/workflows/release.yml`. The release workflow publishes the production image to GHCR, resolves its immutable SHA-256 digest, scans that exact digest, generates a CycloneDX SBOM, and attaches both GitHub build-provenance and SBOM attestations.
 
 The digest is the deployment identity; release tags are aliases only. See `RELEASE_SECURITY.md`.
+
+
+## Attestation-verified promotion
+
+Release publication and production promotion are separated. `.github/workflows/promote.yml` verifies the exact GHCR digest's GitHub provenance and CycloneDX SBOM attestations, then emits digest-pinned Kubernetes manifests and checksummed promotion evidence.

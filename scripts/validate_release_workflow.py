@@ -8,6 +8,7 @@ WORKFLOWS = (
     Path(".github/workflows/ci.yml"),
     Path(".github/workflows/agent.yml"),
     Path(".github/workflows/release.yml"),
+    Path(".github/workflows/promote.yml"),
 )
 
 USES_LINE = re.compile(
@@ -74,6 +75,50 @@ def validate_release_workflow(path: Path) -> list[str]:
     return errors
 
 
+def validate_promotion_workflow(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+
+    required = (
+        "attestations: read",
+        "packages: read",
+        "environment: production",
+        "refs/heads/main",
+        "gh attestation verify",
+        "--signer-workflow",
+        ".github/workflows/release.yml",
+        "--source-ref",
+        "--source-digest",
+        "--deny-self-hosted-runners",
+        "--predicate-type \"https://cyclonedx.org/bom\"",
+        "scripts/render_release_manifests.py",
+        "verified-application.yaml",
+        "scripts/validate_kubernetes.sh",
+        "kubeconform",
+        "promotion-evidence.json",
+    )
+    for token in required:
+        if token not in text:
+            errors.append(
+                f"{path}: missing promotion invariant: {token}"
+            )
+
+    if ":latest" in text:
+        errors.append(
+            f"{path}: :latest image tags are forbidden"
+        )
+
+    if re.search(
+        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+        text,
+    ):
+        errors.append(
+            f"{path}: mutable GitHub Action ref is forbidden"
+        )
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     for workflow in WORKFLOWS:
@@ -85,6 +130,10 @@ def main() -> int:
     release = Path(".github/workflows/release.yml")
     if release.is_file():
         errors.extend(validate_release_workflow(release))
+
+    promotion = Path(".github/workflows/promote.yml")
+    if promotion.is_file():
+        errors.extend(validate_promotion_workflow(promotion))
 
     if errors:
         for error in errors:

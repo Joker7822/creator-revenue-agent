@@ -322,3 +322,26 @@ ghcr.io/<owner>/creator-revenue-agent@sha256:<digest>
 ```
 
 Use that same digest for both the Kubernetes migration Job and Deployment. Verify the GitHub build-provenance and SBOM attestations before traffic cutover. See `RELEASE_SECURITY.md`.
+
+
+## Attestation-verified promotion
+
+After `.github/workflows/release.yml` publishes and attests an image, run:
+
+```text
+Verify Release Promotion
+```
+
+with the release tag and the exact digest reference from `release-image.txt`.
+
+The promotion workflow verifies both GitHub build provenance and the CycloneDX SBOM attestation before generating a digest-pinned Kubernetes bundle.
+
+Deployment automation should consume only the resulting:
+
+```text
+verified-promotion-<release-tag>
+```
+
+artifact. Do not accept an operator-supplied mutable tag at the cluster deployment step.
+
+Configure the GitHub `production` environment with required reviewers and any organization deployment protection rules available to the repository.

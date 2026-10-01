@@ -1,0 +1,171 @@
+name: Verify Release Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Semantic release tag produced by release.yml
+        required: true
+        type: string
+      image_ref:
+        description: Immutable GHCR image reference with sha256 digest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+concurrency:
+  group: production-promotion
+  cancel-in-progress: false
+
+jobs:
+  verify-and-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Require protected main workflow ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+
+      - name: Resolve promotion identity
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}" >/dev/null
+          SOURCE_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+          IMAGE_REF="${INPUT_IMAGE_REF,,}"
+
+          python scripts/render_release_manifests.py             --image-ref "$IMAGE_REF"             --expected-image "$IMAGE_NAME"             --release-tag "$RELEASE_TAG"             --source-commit "$SOURCE_COMMIT"             --output-dir verified-kubernetes
+
+          {
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "SOURCE_COMMIT=$SOURCE_COMMIT"
+            echo "IMAGE_NAME=$IMAGE_NAME"
+            echo "IMAGE_REF=$IMAGE_REF"
+          } >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify GitHub build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://$IMAGE_REF"             --repo "$GITHUB_REPOSITORY"             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"             --source-ref "refs/tags/$RELEASE_TAG"             --source-digest "$SOURCE_COMMIT"             --deny-self-hosted-runners             --format json             > provenance-verification.json
+          test -s provenance-verification.json
+
+      - name: Verify GitHub CycloneDX SBOM attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://$IMAGE_REF"             --repo "$GITHUB_REPOSITORY"             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"             --source-ref "refs/tags/$RELEASE_TAG"             --source-digest "$SOURCE_COMMIT"             --deny-self-hosted-runners             --predicate-type "https://cyclonedx.org/bom"             --format json             > sbom-verification.json
+          test -s sbom-verification.json
+
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: "v1.31.4"
+
+      - name: Render digest-pinned Kubernetes deployment
+        run: |
+          set -euo pipefail
+          kubectl kustomize verified-kubernetes             > verified-application.yaml
+          printf '\n---\n' >> verified-application.yaml
+          cat verified-kubernetes/migration-job.yaml             >> verified-application.yaml
+
+          if grep -R -nE             'ghcr\.io/[^[:space:]]+:[^[:space:]]+'             verified-kubernetes             --include='*.yaml'; then
+            echo "mutable container image reference detected" >&2
+            exit 1
+          fi
+
+          grep -R -F "$IMAGE_REF"             verified-kubernetes/deployment.yaml             verified-kubernetes/migration-job.yaml
+
+          bash scripts/validate_kubernetes.sh             verified-application.yaml
+
+      - name: Validate Kubernetes schemas
+        run: |
+          docker run --rm             -v "$PWD:/work"             ghcr.io/yannh/kubeconform:v0.6.7             -strict             -summary             -kubernetes-version 1.31.0             /work/verified-application.yaml
+
+      - name: Write promotion evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def digest(path: str) -> str:
+              return hashlib.sha256(
+                  Path(path).read_bytes()
+              ).hexdigest()
+
+          payload = {
+              "version": "verified-promotion-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+              "provenance_verification_sha256": digest(
+                  "provenance-verification.json"
+              ),
+              "sbom_verification_sha256": digest(
+                  "sbom-verification.json"
+              ),
+              "application_manifest_sha256": digest(
+                  "verified-application.yaml"
+              ),
+              "generated_at": datetime.now(
+                  timezone.utc
+              ).isoformat(),
+          }
+          Path("promotion-evidence.json").write_text(
+              json.dumps(
+                  payload,
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          sha256sum promotion-evidence.json             > promotion-evidence.json.sha256
+          sha256sum provenance-verification.json             > provenance-verification.json.sha256
+          sha256sum sbom-verification.json             > sbom-verification.json.sha256
+          sha256sum verified-application.yaml             > verified-application.yaml.sha256
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-promotion-${{ inputs.release_tag }}
+          path: |
+            verified-kubernetes/
+            verified-application.yaml
+            verified-application.yaml.sha256
+            provenance-verification.json
+            provenance-verification.json.sha256
+            sbom-verification.json
+            sbom-verification.json.sha256
+            promotion-evidence.json
+            promotion-evidence.json.sha256
+          if-no-files-found: error
+          retention-days: 90

@@ -80,3 +80,37 @@ Before production promotion, verify:
 - deployed Kubernetes image ID equals the attested digest
 
 The target environment should enforce attestation/signature policy at admission when the selected managed platform supports it.
+
+
+## Verified promotion gate
+
+Production promotion is a separate workflow from image publication:
+
+```text
+.github/workflows/promote.yml
+```
+
+It accepts only:
+
+```text
+release_tag
+immutable GHCR image@sha256 digest
+```
+
+Before producing a deployment bundle it:
+
+1. resolves the release tag to its source commit
+2. rejects mutable image tags and repository mismatches
+3. authenticates to GHCR
+4. verifies the GitHub SLSA provenance attestation for the exact OCI digest
+5. constrains signer identity to this repository's `.github/workflows/release.yml`
+6. constrains source ref and source commit to the requested release tag
+7. refuses attestations originating from self-hosted runners
+8. verifies a CycloneDX SBOM attestation for the same digest
+9. rewrites both the Kubernetes Deployment and migration Job to the same immutable digest
+10. reruns Kubernetes hardening and schema validation
+11. emits checksummed promotion evidence
+
+The promotion workflow uses the GitHub `production` environment. Configure required reviewers / deployment protection rules on that environment in repository settings.
+
+The uploaded `verified-promotion-<tag>` artifact is the deployable handoff. Downstream CD should consume that bundle rather than accepting an arbitrary image tag or rebuilding the image.

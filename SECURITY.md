@@ -279,3 +279,13 @@ High-risk workflow actions now use server-configured service identities and role
 - GitHub build-provenance and SBOM attestations are bound to the same image digest.
 - Release evidence includes the source commit, release tag, digest, SBOM checksum, and attestation identifiers.
 - External GitHub Actions are pinned to immutable 40-character commit SHAs and checked by CI.
+
+
+## Attestation-verified deployment handoff
+
+- Production promotion accepts only an immutable GHCR `@sha256:` reference matching this repository's image name.
+- GitHub artifact attestation verification is constrained to this repository, the release workflow identity, release tag source ref, and resolved source commit.
+- Promotion rejects provenance generated on self-hosted runners.
+- Both build provenance and CycloneDX SBOM attestations must validate for the same digest.
+- Kubernetes Deployment and migration Job are generated from the same verified digest.
+- The promotion handoff contains checksums and verification evidence and is intended to be the only input accepted by downstream production CD.

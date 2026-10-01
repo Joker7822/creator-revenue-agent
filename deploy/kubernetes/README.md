@@ -146,3 +146,19 @@ scripts/validate_kubernetes.sh
 The tag release workflow emits `release-image.txt` with the immutable GHCR digest and creates build-provenance plus SBOM attestations for that digest.
 
 Before applying these manifests, replace the placeholder image in both `deployment.yaml` and `migration-job.yaml` with that exact digest. Never rebuild the release image during deployment.
+
+
+## Verified image promotion
+
+The checked-in manifests deliberately contain an image placeholder. Production CD should not edit that placeholder manually.
+
+Run the GitHub `Verify Release Promotion` workflow with the release tag and attested image digest. It verifies provenance/SBOM claims and emits a copy of this directory where both:
+
+```text
+deployment.yaml
+migration-job.yaml
+```
+
+reference the same immutable `@sha256:` image.
+
+Use that verified bundle for the migration and rollout sequence.
