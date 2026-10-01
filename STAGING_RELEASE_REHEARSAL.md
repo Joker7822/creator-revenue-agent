@@ -157,17 +157,20 @@ must exist in their corresponding staging key rings. Otherwise `/ready`
 will correctly remain unhealthy.
 
 The Kubernetes principal in `KUBECONFIG_B64` should have the minimum
-namespace-scoped permissions required to:
+permissions required to:
 
-- read the namespace
+- get the pre-provisioned staging Namespace so the workflow can verify the
+  `pod-security.kubernetes.io/enforce=restricted` label
 - read only the staging application Secret metadata/data keys
 - create/delete/get/watch the migration Job and Pods/logs needed for failure
   diagnosis
-- apply the checked-in ServiceAccount, ConfigMap, Deployment, Service,
-  PodDisruptionBudget, HorizontalPodAutoscaler, and NetworkPolicy
+- apply the checked-in namespaced ServiceAccount, ConfigMap, Deployment,
+  Service, PodDisruptionBudget, HorizontalPodAutoscaler, and NetworkPolicy
 - get/watch the resulting Deployment and Pods
 
-Namespace creation is not required by the workflow.
+The workflow does not create or modify the Namespace. Namespace write
+permission is not required. The Namespace read permission is cluster-scoped;
+all deployment writes can remain confined to the staging namespace.
 
 ## Staging manifest derivation
 
@@ -196,8 +199,11 @@ This makes staging exercise the production configuration checks rather than
 silently weakening them.
 
 The renderer also requires both the Deployment and migration Job to retain
-the exact attested `@sha256:` image and regenerates `SHA256SUMS` after the
-environment-specific transformation.
+the exact attested `@sha256:` image, removes `namespace.yaml` from the
+Kustomize apply set, and regenerates `SHA256SUMS` after the
+environment-specific transformation. The Namespace manifest remains in the
+evidence/validation bundle so its restricted Pod Security contract is still
+schema- and policy-checked.
 
 ## Rollout sequence
 
@@ -235,6 +241,8 @@ It contains:
 staging-kubernetes/
 staging-application.yaml
 staging-application.yaml.sha256
+staging-validation.yaml
+staging-validation.yaml.sha256
 staging-rollout-evidence.json
 staging-rollout-evidence.json.sha256
 ```

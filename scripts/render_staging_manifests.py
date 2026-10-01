@@ -335,10 +335,16 @@ def render_staging_bundle(
         f"  name: {BASE_NAMESPACE}\n",
         f"  name: {namespace}\n",
     )
+    kustomization_path = output_dir / "kustomization.yaml"
     replace_exact_once(
-        output_dir / "kustomization.yaml",
+        kustomization_path,
         f"namespace: {BASE_NAMESPACE}\n",
         f"namespace: {namespace}\n",
+    )
+    replace_exact_once(
+        kustomization_path,
+        "resources:\n  - namespace.yaml\n",
+        "resources:\n",
     )
 
     config_path = output_dir / "config-map.yaml"

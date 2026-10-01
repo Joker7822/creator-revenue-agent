@@ -74,6 +74,7 @@ def test_render_staging_bundle_rebinds_environment(
         "namespace: creator-revenue-agent-staging"
         in kustomization_text
     )
+    assert "  - namespace.yaml" not in kustomization_text
     assert 'SERVICE_JWT_ACTIVE_KID: "staging-jwt"' in config_text
     assert 'AUDIT_HASH_ACTIVE_KID: "staging-audit"' in config_text
     assert (

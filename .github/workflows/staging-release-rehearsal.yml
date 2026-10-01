@@ -330,12 +330,18 @@ jobs:
 
           kubectl kustomize staging-kubernetes \
             > staging-application.yaml
-          printf '\n---\n' >> staging-application.yaml
+
+          cat staging-kubernetes/namespace.yaml \
+            > staging-validation.yaml
+          printf '\n---\n' >> staging-validation.yaml
+          cat staging-application.yaml \
+            >> staging-validation.yaml
+          printf '\n---\n' >> staging-validation.yaml
           cat staging-kubernetes/migration-job.yaml \
-            >> staging-application.yaml
+            >> staging-validation.yaml
 
           bash scripts/validate_kubernetes.sh \
-            staging-application.yaml
+            staging-validation.yaml
 
           docker run --rm \
             -v "$PWD:/work" \
@@ -343,10 +349,12 @@ jobs:
             -strict \
             -summary \
             -kubernetes-version 1.31.0 \
-            /work/staging-application.yaml
+            /work/staging-validation.yaml
 
           sha256sum staging-application.yaml \
             > staging-application.yaml.sha256
+          sha256sum staging-validation.yaml \
+            > staging-validation.yaml.sha256
 
       - name: Configure exact staging cluster
         shell: bash
@@ -386,7 +394,11 @@ jobs:
           test "$ACTUAL_SERVER" = "$KUBE_SERVER"
 
           kubectl cluster-info >/dev/null
-          kubectl get namespace "$K8S_NAMESPACE" >/dev/null
+          ENFORCED_POLICY="$(
+            kubectl get namespace "$K8S_NAMESPACE" \
+              -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
+          )"
+          test "$ENFORCED_POLICY" = "restricted"
 
       - name: Verify staging secret contract
         shell: bash
@@ -433,9 +445,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          kubectl apply \
-            -f staging-kubernetes/namespace.yaml
-          kubectl apply \
+          kubectl -n "$K8S_NAMESPACE" apply \
             -f staging-kubernetes/service-account.yaml
 
           kubectl -n "$K8S_NAMESPACE" \
@@ -611,6 +621,9 @@ jobs:
               "staging_application_sha256": sha256(
                   "staging-application.yaml"
               ),
+              "staging_validation_sha256": sha256(
+                  "staging-validation.yaml"
+              ),
               "generated_at": datetime.now(
                   timezone.utc
               ).isoformat(),
@@ -637,6 +650,8 @@ jobs:
             staging-kubernetes/
             staging-application.yaml
             staging-application.yaml.sha256
+            staging-validation.yaml
+            staging-validation.yaml.sha256
             staging-rollout-evidence.json
             staging-rollout-evidence.json.sha256
           if-no-files-found: error
