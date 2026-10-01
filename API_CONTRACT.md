@@ -225,3 +225,10 @@ Allowed decisions:
 - `inconclusive`
 
 Review requires a completed experiment and persists the statistical snapshot used for the decision. It does not change production configuration.
+
+
+## Trust boundary rules
+
+When `POST /v1/policy/evaluate` includes `job_id`, the server evaluates the job's persisted verification facts. Request fields such as `creator_age`, `age_verified`, and consent booleans are not trusted to override the job.
+
+For `POST /v1/approvals`, `required` is only a request hint. If server configuration has `REQUIRE_HUMAN_REVIEW=true`, the effective value is always true and the initial status is `pending_review`.

@@ -235,3 +235,10 @@ An experiment cannot be completed until all readiness gates pass. After completi
 - `inconclusive`
 
 A review stores a statistics snapshot but does not mutate product price, content, or publishing state.
+
+
+## Trust boundary hardening
+
+For persisted jobs, policy evaluation uses the verification facts already stored with the job. Caller-supplied age or consent booleans on a `job_id` policy request cannot upgrade the stored verification state.
+
+When `REQUIRE_HUMAN_REVIEW=true`, an approval request cannot disable review with `required=false`. The server derives the effective requirement and keeps the approval in `pending_review` until an explicit approve action is recorded.

@@ -94,11 +94,21 @@ def test_optimizer_requires_active_product() -> None:
             "consent_verified": True,
         },
     )
-    client.post(
+    approval = client.post(
         "/v1/approvals",
         headers=auth(),
         json={"job_id": job["job_id"], "required": False},
     )
+    assert approval.status_code == 200
+    assert approval.json()["status"] == "pending_review"
+
+    approved = client.post(
+        f"/v1/approvals/{job['job_id']}/approve",
+        headers=auth(),
+        json={"reviewer": "optimizer-reviewer"},
+    )
+    assert approved.status_code == 200
+
     publication = client.post(
         "/v1/publish",
         headers=auth(),

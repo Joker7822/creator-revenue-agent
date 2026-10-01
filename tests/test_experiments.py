@@ -197,7 +197,23 @@ def test_start_does_not_mutate_product() -> None:
     assert product["price_minor_units"] == 1500
 
 
-def test_complete_experiment_records_outcome_and_audit() -> None:
+def test_complete_experiment_records_outcome_and_audit(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EXPERIMENT_MIN_RUNTIME_HOURS", "0")
+    monkeypatch.setenv(
+        "EXPERIMENT_MIN_ASSIGNMENTS_PER_ARM",
+        "0",
+    )
+    monkeypatch.setenv(
+        "EXPERIMENT_MIN_IMPRESSIONS_PER_ARM",
+        "0",
+    )
+    monkeypatch.setenv(
+        "EXPERIMENT_MIN_CLICKS_PER_ARM",
+        "0",
+    )
+
     state = setup_approved_proposal()
     recommendations = state["proposal"]["recommendations"]
     index = next(

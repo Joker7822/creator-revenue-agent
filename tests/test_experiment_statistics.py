@@ -37,11 +37,21 @@ def setup_running_experiment() -> dict:
             "real_person_consent_verified": False,
         },
     )
-    client.post(
+    approval = client.post(
         "/v1/approvals",
         headers=auth(),
         json={"job_id": job["job_id"], "required": False},
     )
+    assert approval.status_code == 200
+    assert approval.json()["status"] == "pending_review"
+
+    approved = client.post(
+        f"/v1/approvals/{job['job_id']}/approve",
+        headers=auth(),
+        json={"reviewer": "test-reviewer"},
+    )
+    assert approved.status_code == 200
+
     publication = client.post(
         "/v1/publish",
         headers=auth(),

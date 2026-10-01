@@ -35,3 +35,11 @@ The starter uses bearer authentication for simplicity. Production deployments sh
 - audit logging
 - replay protection
 - least-privilege service roles
+
+
+## Server-authoritative workflow state
+
+- Persisted job verification facts are authoritative for policy evaluation.
+- A caller cannot upgrade an existing job by resubmitting more permissive age or consent booleans.
+- `REQUIRE_HUMAN_REVIEW=true` is enforced server-side and cannot be bypassed with `required=false`.
+- Publication continues to require a persisted allowed policy result and an approved approval record.

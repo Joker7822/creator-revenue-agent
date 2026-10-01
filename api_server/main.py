@@ -32,6 +32,7 @@ from api_server.repository import (
     decide_approval,
     get_approval,
     get_audit_events,
+    get_job_policy_request,
     get_metrics,
     get_product,
     get_publication,
@@ -117,16 +118,23 @@ def content_generate(
 def policy_evaluate(
     request: PolicyEvaluateRequest,
 ) -> PolicyEvaluateResponse:
-    response = evaluate_policy(request)
     if request.job_id:
         with SessionLocal() as session:
+            trusted_request = get_job_policy_request(
+                session,
+                job_id=request.job_id,
+                asset_ref=request.asset_ref,
+            )
+            response = evaluate_policy(trusted_request)
             set_policy_result(
                 session,
                 job_id=request.job_id,
                 allowed=response.allowed,
                 reasons=response.reasons,
             )
-    return response
+            return response
+
+    return evaluate_policy(request)
 
 
 @app.post(

@@ -20,6 +20,8 @@ from api_server.db import (
     PublicationRecord,
     TransactionRecord,
 )
+from app.config import settings
+
 from api_server.schemas import (
     AnalyticsEventResponse,
     ApprovalResponse,
@@ -28,6 +30,7 @@ from api_server.schemas import (
     ContentGenerateResponse,
     MetricsCurrencySummary,
     MetricsResponse,
+    PolicyEvaluateRequest,
     ProductResponse,
     PublicationResponse,
     RevenueCurrencySummary,
@@ -87,6 +90,32 @@ def create_job(
     return job
 
 
+def get_job_policy_request(
+    session: Session,
+    *,
+    job_id: str,
+    asset_ref: str | None,
+) -> PolicyEvaluateRequest:
+    job = session.get(JobRecord, job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail="job not found",
+        )
+
+    return PolicyEvaluateRequest(
+        job_id=job.id,
+        creator_age=job.creator_age,
+        age_verified=job.age_verified,
+        consent_verified=job.consent_verified,
+        depicts_real_person=job.depicts_real_person,
+        real_person_consent_verified=(
+            job.real_person_consent_verified
+        ),
+        asset_ref=asset_ref,
+    )
+
+
 def set_policy_result(
     session: Session,
     *,
@@ -140,13 +169,31 @@ def create_approval(
     if existing is not None:
         return _approval_response(existing)
 
+    effective_required = (
+        True
+        if settings.require_human_review
+        else required
+    )
+
     now = utcnow()
     approval = ApprovalRecord(
         job_id=job_id,
-        required=required,
-        status="pending_review" if required else "approved",
-        reviewer=None if required else "system",
-        decided_at=None if required else now,
+        required=effective_required,
+        status=(
+            "pending_review"
+            if effective_required
+            else "approved"
+        ),
+        reviewer=(
+            None
+            if effective_required
+            else "system"
+        ),
+        decided_at=(
+            None
+            if effective_required
+            else now
+        ),
     )
     session.add(approval)
     add_audit(
@@ -154,9 +201,13 @@ def create_approval(
         job_id=job_id,
         event_type="approval_created",
         actor="system",
-        payload={"required": required, "status": approval.status},
+        payload={
+            "requested_required": required,
+            "effective_required": effective_required,
+            "status": approval.status,
+        },
     )
-    if not required:
+    if not effective_required:
         add_audit(
             session,
             job_id=job_id,
