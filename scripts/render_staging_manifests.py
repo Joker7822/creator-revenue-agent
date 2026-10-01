@@ -255,6 +255,36 @@ def replace_config_value(
     path.write_text(text, encoding="utf-8")
 
 
+def inject_config_hash(
+    deployment_path: Path,
+    *,
+    config_sha256: str,
+) -> None:
+    text = deployment_path.read_text(encoding="utf-8")
+    marker = (
+        "  template:\n"
+        "    metadata:\n"
+        "      labels:\n"
+    )
+    if text.count(marker) != 1:
+        raise ValueError(
+            "deployment.yaml: expected exactly one pod template "
+            "metadata block"
+        )
+    replacement = (
+        "  template:\n"
+        "    metadata:\n"
+        "      annotations:\n"
+        "        creator-revenue-agent/config-sha256: "
+        f"\"{config_sha256}\"\n"
+        "      labels:\n"
+    )
+    deployment_path.write_text(
+        text.replace(marker, replacement, 1),
+        encoding="utf-8",
+    )
+
+
 def verify_image_identity(
     path: Path,
     image_ref: str,
@@ -357,6 +387,12 @@ def render_staging_bundle(
     for key, value in replacements.items():
         replace_config_value(config_path, key, value)
 
+    config_sha256 = sha256_file(config_path)
+    inject_config_hash(
+        output_dir / "deployment.yaml",
+        config_sha256=config_sha256,
+    )
+
     app_env_pattern = re.compile(
         r"^  APP_ENV:\s*production\s*$",
         re.MULTILINE,
@@ -407,6 +443,7 @@ def render_staging_bundle(
         "audit_hash_active_kid": audit_hash_active_kid,
         "audit_anchor_base_url": audit_anchor_base_url,
         "audit_anchor_namespace": audit_anchor_namespace,
+        "config_map_sha256": config_sha256,
         "source_promotion_metadata_sha256": (
             source_metadata_sha256
         ),

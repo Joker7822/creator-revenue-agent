@@ -103,6 +103,13 @@ def test_render_staging_bundle_rebinds_environment(
             encoding="utf-8"
         )
     )
+    config_sha256 = metadata["config_map_sha256"]
+    assert len(config_sha256) == 64
+    assert (
+        'creator-revenue-agent/config-sha256: '
+        f'"{config_sha256}"'
+        in deployment_text
+    )
     assert metadata["version"] == "staging-rehearsal-bundle-v1"
     assert metadata["release_tag"] == RELEASE_TAG
     assert metadata["source_commit"] == SOURCE_COMMIT
@@ -112,6 +119,39 @@ def test_render_staging_bundle_rebinds_environment(
         == "creator-revenue-agent-staging"
     )
     assert (output / "SHA256SUMS").is_file()
+
+
+def test_config_change_changes_pod_template_hash(
+    tmp_path: Path,
+) -> None:
+    first = render(tmp_path)
+    first_deployment = (
+        first / "deployment.yaml"
+    ).read_text(encoding="utf-8")
+
+    source = verified_bundle(tmp_path / "second-source")
+    second = tmp_path / "second-staging"
+    render_staging_bundle(
+        source_dir=source,
+        output_dir=second,
+        release_tag=RELEASE_TAG,
+        source_commit=SOURCE_COMMIT,
+        image_ref=IMAGE_REF,
+        namespace="creator-revenue-agent-staging",
+        service_jwt_active_kid="staging-jwt-rotated",
+        audit_hash_active_kid="staging-audit",
+        audit_anchor_base_url=(
+            "https://audit-anchor.staging.example.internal"
+        ),
+        audit_anchor_namespace=(
+            "creator-revenue-agent-staging"
+        ),
+    )
+    second_deployment = (
+        second / "deployment.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert first_deployment != second_deployment
 
 
 @pytest.mark.parametrize(

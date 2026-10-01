@@ -201,7 +201,11 @@ silently weakening them.
 The renderer also requires both the Deployment and migration Job to retain
 the exact attested `@sha256:` image, removes `namespace.yaml` from the
 Kustomize apply set, and regenerates `SHA256SUMS` after the
-environment-specific transformation. The Namespace manifest remains in the
+environment-specific transformation. It hashes the rendered ConfigMap and
+writes that SHA-256 into the Deployment Pod template annotation
+`creator-revenue-agent/config-sha256`, so changing staging configuration
+forces Kubernetes to create a new ReplicaSet even when the release image
+digest is unchanged. The Namespace manifest remains in the
 evidence/validation bundle so its restricted Pod Security contract is still
 schema- and policy-checked.
 
