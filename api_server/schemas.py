@@ -592,4 +592,16 @@ class AuditEventResponse(BaseModel):
     event_type: str
     actor: str | None
     payload: dict
+    previous_hash: str
+    hash_key_id: str
+    event_hash: str
     created_at: datetime
+
+
+class AuditIntegrityResponse(BaseModel):
+    valid: bool
+    checked_events: int
+    head_event_id: int | None
+    head_hash: str
+    first_invalid_event_id: int | None
+    reason: str | None

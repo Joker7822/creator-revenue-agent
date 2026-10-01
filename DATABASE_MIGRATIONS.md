@@ -73,3 +73,10 @@ Revision `20261001_0003` adds `verification_webhook_events`, including a unique 
 ## Webhook key rotation revision
 
 Revision `20261001_0004` adds `verification_webhook_events.key_id` and its index. Existing event rows are backfilled to `legacy` before the column becomes non-nullable.
+
+
+## Audit hash-chain revision
+
+Revision `20261001_0005` adds `previous_hash`, `hash_key_id`, and `event_hash` to `audit_events`, plus the authenticated `audit_chain_state` head.
+
+Existing audit rows are deterministically linked under `legacy-sha256-v1`. Events written after deployment use the active HMAC key configured outside the database.

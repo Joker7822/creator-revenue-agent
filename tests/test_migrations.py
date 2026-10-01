@@ -205,3 +205,122 @@ def test_webhook_key_id_backfills_from_0003(
         engine.dispose()
 
     assert key_id == "legacy"
+
+
+
+def test_audit_chain_backfills_from_0004(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url = (
+        f"sqlite:///{tmp_path / 'audit-0004.db'}"
+    )
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    config = config_for(database_url)
+
+    command.upgrade(config, "20261001_0004")
+
+    engine = create_engine(database_url)
+    now = datetime.now(timezone.utc)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO audit_events (
+                        job_id,
+                        event_type,
+                        actor,
+                        payload_json,
+                        created_at
+                    ) VALUES (
+                        :job_id,
+                        :event_type,
+                        :actor,
+                        :payload_json,
+                        :created_at
+                    )
+                    """
+                ),
+                {
+                    "job_id": "job_migration",
+                    "event_type": "job_created",
+                    "actor": "system",
+                    "payload_json": "{}",
+                    "created_at": now,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO audit_events (
+                        job_id,
+                        event_type,
+                        actor,
+                        payload_json,
+                        created_at
+                    ) VALUES (
+                        :job_id,
+                        :event_type,
+                        :actor,
+                        :payload_json,
+                        :created_at
+                    )
+                    """
+                ),
+                {
+                    "job_id": "job_migration",
+                    "event_type": "policy_evaluated",
+                    "actor": "system",
+                    "payload_json": (
+                        '{"allowed":true,"reasons":[]}'
+                    ),
+                    "created_at": now,
+                },
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            rows = connection.execute(
+                text(
+                    """
+                    SELECT
+                        id,
+                        previous_hash,
+                        hash_key_id,
+                        event_hash
+                    FROM audit_events
+                    ORDER BY id
+                    """
+                )
+            ).mappings().all()
+            state = connection.execute(
+                text(
+                    """
+                    SELECT
+                        last_event_id,
+                        last_hash,
+                        hash_key_id,
+                        state_hash
+                    FROM audit_chain_state
+                    WHERE id = 1
+                    """
+                )
+            ).mappings().one()
+    finally:
+        engine.dispose()
+
+    assert len(rows) == 2
+    assert rows[0]["previous_hash"] == "0" * 64
+    assert rows[0]["hash_key_id"] == "legacy-sha256-v1"
+    assert rows[1]["previous_hash"] == rows[0]["event_hash"]
+    assert rows[1]["hash_key_id"] == "legacy-sha256-v1"
+    assert state["last_event_id"] == rows[1]["id"]
+    assert state["last_hash"] == rows[1]["event_hash"]
+    assert state["hash_key_id"] == "legacy-sha256-v1"
+    assert len(state["state_hash"]) == 64

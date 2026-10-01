@@ -434,3 +434,27 @@ GET /v1/auth/verification-webhook-keys
 returns only provider names and accepted key IDs, never secret material, and requires `credential_admin`.
 
 The legacy no-key-ID canonical form may be enabled only for migration with `VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=false` and exactly one accepted key for that provider.
+
+
+## Audit integrity
+
+```text
+GET /v1/audit/integrity
+```
+
+Audit events expose `previous_hash`, `hash_key_id`, and `event_hash`.
+
+New events are authenticated with HMAC-SHA256 using the key selected by `AUDIT_HASH_ACTIVE_KID`. The server also authenticates the persisted chain head.
+
+The integrity response includes:
+
+- `valid`
+- `checked_events`
+- `head_event_id`
+- `head_hash`
+- `first_invalid_event_id`
+- `reason`
+
+Detected failure classes include event content modification, broken previous-hash links, missing/unknown historical HMAC keys, missing chain state, chain-head mismatch, and chain-state MAC mismatch.
+
+Rows created before HMAC chaining are migrated under `legacy-sha256-v1`.

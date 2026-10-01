@@ -478,3 +478,30 @@ GET /v1/auth/verification-webhook-keys
 This endpoint requires `credential_admin`.
 
 For a temporary migration from the pre-`kid` signature format, set `VERIFICATION_WEBHOOK_REQUIRE_KEY_ID=false` while exactly one key is configured. The steady-state production setting should be `true`.
+
+
+## Tamper-evident audit chain
+
+Compliance audit events are chained globally in insertion order.
+
+Each new event stores:
+
+```text
+previous_hash
+hash_key_id
+event_hash
+```
+
+New events use HMAC-SHA256 with a deployment secret selected by `AUDIT_HASH_ACTIVE_KID`. The HMAC covers event ID, job ID, event type, actor, canonical payload JSON, timestamp, previous hash, and key ID.
+
+The chain head is stored separately with its own HMAC over the final event ID and final event hash. This detects ordinary row edits, middle-row deletion, and tail deletion where an attacker changes only database contents but does not possess the audit HMAC key.
+
+Integrity can be checked with:
+
+```text
+GET /v1/audit/integrity
+```
+
+Existing audit rows predating this feature are migrated as `legacy-sha256-v1`; new rows use the configured HMAC key.
+
+Retired audit verification keys must remain available if historical HMAC-protected events used them. A database rollback to an earlier internally consistent snapshot is outside the guarantees of an in-database chain and should be addressed with an external/WORM anchor.

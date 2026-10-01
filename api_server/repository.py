@@ -21,6 +21,7 @@ from api_server.db import (
     TransactionRecord,
 )
 from app.config import settings
+from api_server.audit_integrity import append_audit_event
 
 from api_server.schemas import (
     AnalyticsEventResponse,
@@ -51,7 +52,8 @@ def add_audit(
     actor: str | None = None,
     payload: dict[str, Any] | None = None,
 ) -> AuditEvent:
-    event = AuditEvent(
+    return append_audit_event(
+        session,
         job_id=job_id,
         event_type=event_type,
         actor=actor,
@@ -61,8 +63,6 @@ def add_audit(
             sort_keys=True,
         ),
     )
-    session.add(event)
-    return event
 
 
 def create_job(
@@ -700,6 +700,9 @@ def get_audit_events(
             event_type=row.event_type,
             actor=row.actor,
             payload=json.loads(row.payload_json or "{}"),
+            previous_hash=row.previous_hash,
+            hash_key_id=row.hash_key_id,
+            event_hash=row.event_hash,
             created_at=row.created_at,
         )
         for row in rows

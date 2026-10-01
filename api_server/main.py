@@ -3,6 +3,7 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, Header, Request
 
+from api_server.audit_integrity import verify_audit_chain
 from api_server.auth import (
     ServicePrincipal,
     get_credential_status,
@@ -69,6 +70,7 @@ from api_server.schemas import (
     ApprovalDecisionRequest,
     ApprovalResponse,
     AuditEventResponse,
+    AuditIntegrityResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
     CredentialIssueRequest,
@@ -139,7 +141,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.18.0",
+    version="0.19.0",
     lifespan=lifespan,
 )
 
@@ -1000,6 +1002,16 @@ def rollback_get(
             session,
             rollback_id=rollback_id,
         )
+
+
+@app.get(
+    "/v1/audit/integrity",
+    response_model=AuditIntegrityResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def audit_integrity_get() -> AuditIntegrityResponse:
+    with SessionLocal() as session:
+        return verify_audit_chain(session)
 
 
 @app.get(

@@ -134,3 +134,15 @@ High-risk workflow actions now use server-configured service identities and role
 - The webhook ledger records the authenticating key ID for auditability.
 - The key-status endpoint exposes IDs only and never returns secret values.
 - Legacy no-key-ID verification is a temporary single-key migration mode only.
+
+
+## Tamper-evident audit logging
+
+- New audit events use an HMAC-SHA256 chain keyed by a secret that is not stored in the database.
+- The HMAC covers the event contents, previous hash, and audit key ID.
+- A separately authenticated chain-head record detects tail deletion and unauthorized chain-head edits.
+- Historical pre-HMAC events are marked `legacy-sha256-v1`; they provide linkage but not secret-key tamper resistance.
+- `AUDIT_HASH_KEYS_JSON` belongs in deployment secret storage.
+- Keep historical audit HMAC keys available for verification after rotation; removing one makes historical events using it unverifiable.
+- This design detects database-only tampering when the attacker does not possess the audit HMAC keys.
+- It does not by itself detect restoration of the entire database to an older previously valid snapshot. Use an external append-only/WORM anchor for rollback detection and stronger non-repudiation.

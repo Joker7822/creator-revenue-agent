@@ -373,6 +373,12 @@ class CustomAPIClient:
             json={"reason": reason},
         )
 
+    def get_audit_integrity(self) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/audit/integrity",
+        )
+
     def get_signing_key_status(self) -> dict[str, Any]:
         return self._request(
             "GET",

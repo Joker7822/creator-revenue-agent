@@ -87,6 +87,20 @@ os.environ.setdefault(
     "65536",
 )
 os.environ.setdefault(
+    "AUDIT_HASH_KEYS_JSON",
+    json.dumps(
+        {
+            "test-audit-2026-10": (
+                "audit-hmac-secret-0000000000000000000001"
+            )
+        }
+    ),
+)
+os.environ.setdefault(
+    "AUDIT_HASH_ACTIVE_KID",
+    "test-audit-2026-10",
+)
+os.environ.setdefault(
     "SERVICE_IDENTITIES_JSON",
     json.dumps(
         {

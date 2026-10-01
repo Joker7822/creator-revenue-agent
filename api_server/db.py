@@ -661,6 +661,36 @@ class IssuedCredentialRecord(Base):
     )
 
 
+class AuditChainState(Base):
+    __tablename__ = "audit_chain_state"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    last_event_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    last_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    hash_key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    state_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
@@ -677,6 +707,20 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(80), index=True)
     actor: Mapped[str | None] = mapped_column(String(120), nullable=True)
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    previous_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    hash_key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+    event_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
