@@ -62,3 +62,15 @@ The starter uses bearer authentication for simplicity. Production deployments sh
 - Rollback uses optimistic concurrency and refuses to overwrite intervening production changes.
 - Rollback records before/after state and writes an audit event.
 - Actor strings remain caller-asserted in the MVP; production must bind actor identity to authenticated roles.
+
+
+## Service Identity and RBAC
+
+High-risk workflow actions now use server-configured service identities and roles.
+
+- The bearer token determines the service subject and roles.
+- Request-body actor/reviewer strings are not authoritative for protected mutations.
+- Insufficient roles return HTTP 403.
+- `ALLOW_LEGACY_ADMIN_TOKEN` defaults to false and should remain disabled in production.
+- `SERVICE_IDENTITIES_JSON` contains secrets and must come from a secret manager or deployment environment, never source control.
+- Static service tokens are an intermediate control. Production hardening should replace them with short-lived signed credentials, rotation, and revocation.

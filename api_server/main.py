@@ -2,7 +2,11 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI
 
-from api_server.auth import require_service_token
+from api_server.auth import (
+    ServicePrincipal,
+    require_roles,
+    require_service_token,
+)
 from api_server.db import SessionLocal, init_db
 from api_server.experiment_statistics import (
     create_experiment_review,
@@ -105,7 +109,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.12.0",
+    version="0.13.0",
 )
 
 
@@ -184,18 +188,20 @@ def approval_get(job_id: str) -> ApprovalResponse:
 @app.post(
     "/v1/approvals/{job_id}/approve",
     response_model=ApprovalResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def approval_approve(
     job_id: str,
     request: ApprovalDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("reviewer")
+    ),
 ) -> ApprovalResponse:
     with SessionLocal() as session:
         return decide_approval(
             session,
             job_id=job_id,
             decision="approved",
-            reviewer=request.reviewer,
+            reviewer=principal.subject,
             reason=request.reason,
         )
 
@@ -203,18 +209,20 @@ def approval_approve(
 @app.post(
     "/v1/approvals/{job_id}/reject",
     response_model=ApprovalResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def approval_reject(
     job_id: str,
     request: ApprovalDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("reviewer")
+    ),
 ) -> ApprovalResponse:
     with SessionLocal() as session:
         return decide_approval(
             session,
             job_id=job_id,
             decision="rejected",
-            reviewer=request.reviewer,
+            reviewer=principal.subject,
             reason=request.reason,
         )
 
@@ -222,15 +230,19 @@ def approval_reject(
 @app.post(
     "/v1/publish",
     response_model=PublicationResponse,
-    dependencies=[Depends(require_service_token)],
 )
-def publish(request: PublishRequest) -> PublicationResponse:
+def publish(
+    request: PublishRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("publisher")
+    ),
+) -> PublicationResponse:
     with SessionLocal() as session:
         return publish_job(
             session,
             job_id=request.job_id,
             destination=request.destination,
-            publisher=request.publisher,
+            publisher=principal.subject,
         )
 
 
@@ -367,18 +379,20 @@ def optimizer_proposal_get(
 @app.post(
     "/v1/optimizer/proposals/{proposal_id}/approve",
     response_model=OptimizationProposalResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def optimizer_proposal_approve(
     proposal_id: str,
     request: OptimizationDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("reviewer")
+    ),
 ) -> OptimizationProposalResponse:
     with SessionLocal() as session:
         return decide_optimization_proposal(
             session,
             proposal_id=proposal_id,
             decision="approved",
-            reviewer=request.reviewer,
+            reviewer=principal.subject,
             reason=request.reason,
         )
 
@@ -386,18 +400,20 @@ def optimizer_proposal_approve(
 @app.post(
     "/v1/optimizer/proposals/{proposal_id}/reject",
     response_model=OptimizationProposalResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def optimizer_proposal_reject(
     proposal_id: str,
     request: OptimizationDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("reviewer")
+    ),
 ) -> OptimizationProposalResponse:
     with SessionLocal() as session:
         return decide_optimization_proposal(
             session,
             proposal_id=proposal_id,
             decision="rejected",
-            reviewer=request.reviewer,
+            reviewer=principal.subject,
             reason=request.reason,
         )
 
@@ -405,17 +421,19 @@ def optimizer_proposal_reject(
 @app.post(
     "/v1/experiments",
     response_model=ExperimentResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def experiment_create(
     request: ExperimentCreateRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("experiment_operator")
+    ),
 ) -> ExperimentResponse:
     with SessionLocal() as session:
         return create_experiment(
             session,
             proposal_id=request.proposal_id,
             recommendation_index=request.recommendation_index,
-            owner=request.owner,
+            owner=principal.subject,
         )
 
 
@@ -434,34 +452,38 @@ def experiment_get(
 @app.post(
     "/v1/experiments/{experiment_id}/start",
     response_model=ExperimentResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def experiment_start(
     experiment_id: str,
     request: ExperimentActorRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("experiment_operator")
+    ),
 ) -> ExperimentResponse:
     with SessionLocal() as session:
         return start_experiment(
             session,
             experiment_id=experiment_id,
-            actor=request.actor,
+            actor=principal.subject,
         )
 
 
 @app.post(
     "/v1/experiments/{experiment_id}/complete",
     response_model=ExperimentResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def experiment_complete(
     experiment_id: str,
     request: ExperimentCompleteRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("experiment_operator")
+    ),
 ) -> ExperimentResponse:
     with SessionLocal() as session:
         return complete_experiment(
             session,
             experiment_id=experiment_id,
-            actor=request.actor,
+            actor=principal.subject,
             outcome=request.outcome,
         )
 
@@ -469,17 +491,19 @@ def experiment_complete(
 @app.post(
     "/v1/experiments/{experiment_id}/cancel",
     response_model=ExperimentResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def experiment_cancel(
     experiment_id: str,
     request: ExperimentCancelRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("experiment_operator")
+    ),
 ) -> ExperimentResponse:
     with SessionLocal() as session:
         return cancel_experiment(
             session,
             experiment_id=experiment_id,
-            actor=request.actor,
+            actor=principal.subject,
             reason=request.reason,
         )
 
@@ -572,18 +596,20 @@ def experiment_statistics_get(
 @app.post(
     "/v1/experiments/{experiment_id}/reviews",
     response_model=ExperimentResultReviewResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def experiment_review_create(
     experiment_id: str,
     request: ExperimentResultReviewCreateRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("reviewer")
+    ),
 ) -> ExperimentResultReviewResponse:
     with SessionLocal() as session:
         return create_experiment_review(
             session,
             experiment_id=experiment_id,
             decision=request.decision,
-            reviewer=request.reviewer,
+            reviewer=principal.subject,
             reason=request.reason,
         )
 
@@ -606,16 +632,18 @@ def experiment_review_get(
 @app.post(
     "/v1/change-sets",
     response_model=ChangeSetResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def change_set_create(
     request: ChangeSetCreateRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("planner")
+    ),
 ) -> ChangeSetResponse:
     with SessionLocal() as session:
         return create_change_set(
             session,
             review_id=request.review_id,
-            created_by=request.created_by,
+            created_by=principal.subject,
         )
 
 
@@ -634,18 +662,20 @@ def change_set_get(
 @app.post(
     "/v1/change-sets/{change_set_id}/approve",
     response_model=ChangeSetResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def change_set_approve(
     change_set_id: str,
     request: ChangeSetDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("release_manager")
+    ),
 ) -> ChangeSetResponse:
     with SessionLocal() as session:
         return decide_change_set(
             session,
             change_set_id=change_set_id,
             decision="approved",
-            actor=request.actor,
+            actor=principal.subject,
             reason=request.reason,
         )
 
@@ -653,18 +683,20 @@ def change_set_approve(
 @app.post(
     "/v1/change-sets/{change_set_id}/reject",
     response_model=ChangeSetResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def change_set_reject(
     change_set_id: str,
     request: ChangeSetDecisionRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("release_manager")
+    ),
 ) -> ChangeSetResponse:
     with SessionLocal() as session:
         return decide_change_set(
             session,
             change_set_id=change_set_id,
             decision="rejected",
-            actor=request.actor,
+            actor=principal.subject,
             reason=request.reason,
         )
 
@@ -672,17 +704,19 @@ def change_set_reject(
 @app.post(
     "/v1/change-sets/{change_set_id}/apply",
     response_model=RolloutResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def change_set_apply(
     change_set_id: str,
     request: RolloutApplyRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("rollout_operator")
+    ),
 ) -> RolloutResponse:
     with SessionLocal() as session:
         return apply_change_set(
             session,
             change_set_id=change_set_id,
-            actor=request.actor,
+            actor=principal.subject,
         )
 
 
@@ -716,17 +750,19 @@ def rollout_monitor(
 @app.post(
     "/v1/rollouts/{rollout_id}/rollback",
     response_model=RollbackResponse,
-    dependencies=[Depends(require_service_token)],
 )
 def rollout_rollback(
     rollout_id: str,
     request: RollbackRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("incident_manager")
+    ),
 ) -> RollbackResponse:
     with SessionLocal() as session:
         return rollback_rollout(
             session,
             rollout_id=rollout_id,
-            actor=request.actor,
+            actor=principal.subject,
             reason=request.reason,
         )
 

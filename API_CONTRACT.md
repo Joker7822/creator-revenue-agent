@@ -281,3 +281,28 @@ GET  /v1/rollbacks/{rollback_id}
 Rollback requires an explicit actor and non-empty reason. Before restoring state, the server checks that the current product state exactly matches the state applied by the rollout. Any intervening production change causes HTTP 409.
 
 Rollback is idempotent per rollout and restores the persisted pre-rollout state.
+
+
+## Service identity and RBAC
+
+Bearer credentials map to server-configured service identities and roles.
+
+Sensitive mutation endpoints require a specific role:
+
+```text
+approval decisions                  reviewer
+optimizer decisions                 reviewer
+experiment result review            reviewer
+publish                             publisher
+experiment lifecycle mutations      experiment_operator
+change-set creation                  planner
+change-set approval/rejection        release_manager
+change-set apply                     rollout_operator
+rollback                             incident_manager
+```
+
+An `admin` role may perform any protected role operation.
+
+Identity-like fields sent in JSON are compatibility fields only for these protected endpoints. The server records the authenticated service subject in workflow records and audit events.
+
+A valid authenticated service without the required role receives HTTP 403.

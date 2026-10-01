@@ -49,7 +49,7 @@ class ApprovalCreateRequest(BaseModel):
 
 
 class ApprovalDecisionRequest(BaseModel):
-    reviewer: str = Field(min_length=1, max_length=120)
+    reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = Field(default=None, max_length=1000)
 
 
@@ -66,7 +66,7 @@ class ApprovalResponse(BaseModel):
 class PublishRequest(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     destination: str = Field(default="internal", min_length=1, max_length=120)
-    publisher: str = Field(default="agent", min_length=1, max_length=120)
+    publisher: str | None = Field(default=None, max_length=120)
 
 
 class PublicationResponse(BaseModel):
@@ -188,7 +188,7 @@ class OptimizationProposalCreateRequest(BaseModel):
 
 
 class OptimizationDecisionRequest(BaseModel):
-    reviewer: str = Field(min_length=1, max_length=120)
+    reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = Field(default=None, max_length=1000)
 
 
@@ -209,20 +209,20 @@ class OptimizationProposalResponse(BaseModel):
 class ExperimentCreateRequest(BaseModel):
     proposal_id: str = Field(min_length=1, max_length=128)
     recommendation_index: int = Field(ge=0)
-    owner: str = Field(min_length=1, max_length=120)
+    owner: str | None = Field(default=None, max_length=120)
 
 
 class ExperimentActorRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
 
 
 class ExperimentCompleteRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
     outcome: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExperimentCancelRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
     reason: str | None = Field(default=None, max_length=1000)
 
 
@@ -368,7 +368,7 @@ class ExperimentResultReviewCreateRequest(BaseModel):
         "variant_preferred",
         "inconclusive",
     ]
-    reviewer: str = Field(min_length=1, max_length=120)
+    reviewer: str | None = Field(default=None, max_length=120)
     reason: str | None = Field(default=None, max_length=2000)
 
 
@@ -384,11 +384,11 @@ class ExperimentResultReviewResponse(BaseModel):
 
 class ChangeSetCreateRequest(BaseModel):
     review_id: str = Field(min_length=1, max_length=128)
-    created_by: str = Field(min_length=1, max_length=120)
+    created_by: str | None = Field(default=None, max_length=120)
 
 
 class ChangeSetDecisionRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
     reason: str | None = Field(default=None, max_length=2000)
 
 
@@ -409,7 +409,7 @@ class ChangeSetResponse(BaseModel):
 
 
 class RolloutApplyRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
 
 
 class RolloutResponse(BaseModel):
@@ -451,7 +451,7 @@ class RolloutMonitorResponse(BaseModel):
 
 
 class RollbackRequest(BaseModel):
-    actor: str = Field(min_length=1, max_length=120)
+    actor: str | None = Field(default=None, max_length=120)
     reason: str = Field(min_length=1, max_length=2000)
 
 

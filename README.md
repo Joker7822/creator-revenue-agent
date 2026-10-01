@@ -298,3 +298,23 @@ The monitor reports:
 The monitor never auto-rolls back. A rollback requires an explicit actor and reason.
 
 Rollback uses another optimistic state check. If production has changed since the rollout, rollback returns HTTP 409 rather than overwriting the intervening change. A successful rollback restores the exact pre-rollout price and is idempotent.
+
+
+## Service Identity and RBAC
+
+Sensitive workflow mutations now derive the audit actor from the authenticated service identity rather than request JSON.
+
+Configured roles:
+
+- `reviewer`: approval decisions, optimizer decisions, experiment-result review
+- `publisher`: publication
+- `experiment_operator`: create/start/complete/cancel experiments
+- `planner`: create production change sets
+- `release_manager`: approve/reject change sets
+- `rollout_operator`: apply approved change sets
+- `incident_manager`: rollback applied rollouts
+- `admin`: emergency/test superset role
+
+`reviewer`, `actor`, `owner`, `created_by`, and `publisher` fields remain accepted for backward-compatible request parsing, but protected endpoints ignore them for identity and use the authenticated principal.
+
+Production should set `SERVICE_IDENTITIES_JSON` from a secret store and leave `ALLOW_LEGACY_ADMIN_TOKEN=false`.

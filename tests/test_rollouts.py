@@ -11,6 +11,10 @@ def auth() -> dict[str, str]:
     return {"Authorization": "Bearer test-token"}
 
 
+def role_auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 def setup_price_review(monkeypatch, decision: str) -> dict:
     monkeypatch.setenv("EXPERIMENT_MIN_RUNTIME_HOURS", "0")
     monkeypatch.setenv(
@@ -274,9 +278,9 @@ def test_rollout_applies_price_once(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/approve"
         ),
-        headers=auth(),
+        headers=role_auth("release-token"),
         json={
-            "actor": "release-manager",
+            "actor": "spoofed-release-manager",
             "reason": "approved for controlled rollout",
         },
     )
@@ -288,16 +292,16 @@ def test_rollout_applies_price_once(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/apply"
         ),
-        headers=auth(),
-        json={"actor": "rollout-operator"},
+        headers=role_auth("rollout-token"),
+        json={"actor": "spoofed-rollout-operator"},
     )
     second = client.post(
         (
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/apply"
         ),
-        headers=auth(),
-        json={"actor": "rollout-operator"},
+        headers=role_auth("rollout-token"),
+        json={"actor": "spoofed-rollout-operator"},
     )
     assert first.status_code == 200
     assert second.status_code == 200
@@ -334,8 +338,8 @@ def test_rollout_blocks_stale_production_state(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/approve"
         ),
-        headers=auth(),
-        json={"actor": "release-manager"},
+        headers=role_auth("release-token"),
+        json={"actor": "spoofed-release-manager"},
     )
     assert approved.status_code == 200
 
@@ -353,8 +357,8 @@ def test_rollout_blocks_stale_production_state(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/apply"
         ),
-        headers=auth(),
-        json={"actor": "rollout-operator"},
+        headers=role_auth("rollout-token"),
+        json={"actor": "spoofed-rollout-operator"},
     )
     assert response.status_code == 409
     assert response.json()["detail"] == (
@@ -383,8 +387,8 @@ def _approved_and_applied_rollout(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/approve"
         ),
-        headers=auth(),
-        json={"actor": "release-manager"},
+        headers=role_auth("release-token"),
+        json={"actor": "spoofed-release-manager"},
     )
     assert approved.status_code == 200
 
@@ -393,8 +397,8 @@ def _approved_and_applied_rollout(
             f"/v1/change-sets/"
             f"{change_set['change_set_id']}/apply"
         ),
-        headers=auth(),
-        json={"actor": "rollout-operator"},
+        headers=role_auth("rollout-token"),
+        json={"actor": "spoofed-rollout-operator"},
     )
     assert rollout.status_code == 200
     return state, rollout.json()
@@ -482,12 +486,12 @@ def test_rollback_restores_price_and_is_idempotent(
 
     first = client.post(
         url,
-        headers=auth(),
+        headers=role_auth("incident-token"),
         json=payload,
     )
     second = client.post(
         url,
-        headers=auth(),
+        headers=role_auth("incident-token"),
         json=payload,
     )
     assert first.status_code == 200
@@ -560,9 +564,9 @@ def test_rollback_blocks_stale_production_state(
             f"/v1/rollouts/"
             f"{rollout['rollout_id']}/rollback"
         ),
-        headers=auth(),
+        headers=role_auth("incident-token"),
         json={
-            "actor": "incident-manager",
+            "actor": "spoofed-incident-manager",
             "reason": "attempt stale rollback",
         },
     )
