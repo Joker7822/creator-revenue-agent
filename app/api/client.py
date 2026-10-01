@@ -141,6 +141,12 @@ class CustomAPIClient:
     def publish(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/publish", json=payload)
 
+    def get_publication(self, job_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/publications/{job_id}",
+        )
+
     def create_product(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/products", json=payload)
 
@@ -168,6 +174,15 @@ class CustomAPIClient:
         if publication_id:
             params["publication_id"] = publication_id
         return self._request("GET", "/v1/metrics", params=params)
+
+    def get_experiment(
+        self,
+        experiment_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/experiments/{experiment_id}",
+        )
 
     def create_experiment(
         self,
@@ -273,6 +288,15 @@ class CustomAPIClient:
             },
         )
 
+    def get_experiment_review(
+        self,
+        experiment_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/experiments/{experiment_id}/review",
+        )
+
     def create_change_set(
         self,
         *,
@@ -286,6 +310,15 @@ class CustomAPIClient:
                 "review_id": review_id,
                 "created_by": created_by,
             },
+        )
+
+    def get_change_set(
+        self,
+        change_set_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/change-sets/{change_set_id}",
         )
 
     def approve_change_set(
@@ -311,6 +344,15 @@ class CustomAPIClient:
             "POST",
             f"/v1/change-sets/{change_set_id}/apply",
             json={"actor": actor},
+        )
+
+    def get_rollout(
+        self,
+        rollout_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/rollouts/{rollout_id}",
         )
 
     def monitor_rollout(
@@ -468,6 +510,15 @@ class CustomAPIClient:
                 "publication_id": publication_id,
                 "window": window,
             },
+        )
+
+    def get_optimization_proposal(
+        self,
+        proposal_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/optimizer/proposals/{proposal_id}",
         )
 
     def approve_optimization_proposal(

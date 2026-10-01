@@ -15,5 +15,7 @@ class Settings(BaseSettings):
     require_human_review: bool = True
     allow_auto_publish: bool = False
 
+    agent_max_auto_steps: int = 4
+
 
 settings = Settings()
