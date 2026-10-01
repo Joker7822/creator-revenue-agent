@@ -4,113 +4,112 @@ This document defines the internal API contract used by `creator-revenue-agent`.
 
 ## Authentication
 
-Protected endpoints require:
+Protected endpoints require a bearer service token.
 
-```http
-Authorization: Bearer <INTERNAL_API_TOKEN>
-Content-Type: application/json
+## Workflow endpoints
+
+```text
+POST /v1/content/generate
+POST /v1/policy/evaluate
+POST /v1/approvals
+GET  /v1/approvals/{job_id}
+POST /v1/approvals/{job_id}/approve
+POST /v1/approvals/{job_id}/reject
+POST /v1/publish
+GET  /v1/publications/{job_id}
+GET  /v1/audit/{job_id}
 ```
 
-## GET /health
+## POST /v1/products
 
-Response:
-
-```json
-{
-  "status": "ok"
-}
-```
-
-## POST /v1/content/generate
-
-Current scope: non-explicit campaign metadata only.
-
-The resulting job is persisted before the API returns.
-
-## POST /v1/policy/evaluate
-
-When `job_id` is provided, the result is persisted and an audit event is recorded.
-
-A job with a failed or missing policy result cannot enter approval or publication.
-
-## Approval endpoints
-
-- `POST /v1/approvals`
-- `GET /v1/approvals/{job_id}`
-- `POST /v1/approvals/{job_id}/approve`
-- `POST /v1/approvals/{job_id}/reject`
-
-A publication requires `approval.status == approved`.
-
-## POST /v1/publish
-
-Creates the internal publication record only after policy and approval gates pass.
+Creates a billable product for a published publication.
 
 Request:
 
 ```json
 {
-  "job_id": "job_123",
-  "destination": "internal-storefront",
-  "publisher": "agent-1"
+  "publication_id": "pub_123",
+  "name": "Premium release",
+  "currency": "JPY",
+  "price_minor_units": 1500
 }
+```
+
+Rules:
+
+- publication must exist and be published
+- currency is normalized to uppercase
+- monetary values are integers in currency minor units
+
+## GET /v1/products/{product_id}
+
+Returns a product.
+
+## POST /v1/transactions
+
+Records a proprietary billing event.
+
+Request:
+
+```json
+{
+  "transaction_id": "tx_order_123",
+  "product_id": "prod_123",
+  "kind": "sale",
+  "amount_minor_units": 1500,
+  "currency": "JPY",
+  "occurred_at": "2026-10-01T00:00:00Z"
+}
+```
+
+`kind` is either `sale` or `refund`.
+
+Rules:
+
+- product must exist and be active
+- transaction currency must equal product currency
+- `transaction_id` is the idempotency key
+- replaying identical data returns the existing transaction
+- replaying the same ID with different data returns HTTP 409
+
+## GET /v1/revenue
+
+Optional query:
+
+```text
+?since=2026-10-01T00:00:00Z
 ```
 
 Response:
 
 ```json
 {
-  "publication_id": "pub_...",
-  "job_id": "job_123",
-  "status": "published",
-  "destination": "internal-storefront",
-  "publisher": "agent-1",
-  "published_at": "2026-10-01T00:00:00Z"
+  "since": null,
+  "currencies": [
+    {
+      "currency": "JPY",
+      "sales_count": 2,
+      "refund_count": 1,
+      "sales_minor_units": 3000,
+      "refunds_minor_units": 500,
+      "net_revenue_minor_units": 2500
+    }
+  ]
 }
 ```
 
-Rules:
+Different currencies are never automatically converted or summed.
 
-- unknown job -> HTTP 404
-- policy not allowed/missing -> HTTP 409
-- approval missing/pending/rejected -> HTTP 409
-- approved -> publication created
-- repeated call for the same job -> same publication returned
+## Audit events
 
-The current endpoint records internal publication state. It does not yet deliver explicit media to an external platform.
+Billing adds:
 
-## GET /v1/publications/{job_id}
+- `product_created`
+- `transaction_recorded`
 
-Returns the existing publication for the job or HTTP 404.
+## Planned next step
 
-## GET /v1/audit/{job_id}
+Analytics endpoints:
 
-Returns ordered audit events for the job.
-
-Current event types include:
-
-- `job_created`
-- `policy_evaluated`
-- `approval_created`
-- `approval_approved`
-- `approval_rejected`
-- `publication_published`
-
-## Database state
-
-Persisted entities:
-
-- job
-- policy result
-- approval
-- reviewer
-- publication
-- timestamps
-- audit events
-
-## Planned endpoints
-
-- `POST /v1/products`
-- `GET /v1/revenue`
 - `POST /v1/events`
 - `GET /v1/metrics?window=7d`

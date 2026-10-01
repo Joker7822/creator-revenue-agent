@@ -19,9 +19,7 @@ class CustomAPIClient:
         token: str | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
-        self.base_url = (
-            base_url or settings.custom_api_base_url
-        ).rstrip("/")
+        self.base_url = (base_url or settings.custom_api_base_url).rstrip("/")
         self.token = token or settings.custom_api_token
         self.timeout_seconds = timeout_seconds
 
@@ -40,10 +38,7 @@ class CustomAPIClient:
         **kwargs: Any,
     ) -> dict[str, Any] | list[Any]:
         url = f"{self.base_url}{path}"
-
-        with httpx.Client(
-            timeout=self.timeout_seconds,
-        ) as client:
+        with httpx.Client(timeout=self.timeout_seconds) as client:
             response = client.request(
                 method,
                 url,
@@ -68,44 +63,17 @@ class CustomAPIClient:
             )
         return data
 
-    def generate_content(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/content/generate",
-            json=payload,
-        )
+    def generate_content(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/content/generate", json=payload)
 
-    def evaluate_policy(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/policy/evaluate",
-            json=payload,
-        )
+    def evaluate_policy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/policy/evaluate", json=payload)
 
-    def create_approval(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/approvals",
-            json=payload,
-        )
+    def create_approval(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/approvals", json=payload)
 
-    def get_approval(
-        self,
-        job_id: str,
-    ) -> dict[str, Any]:
-        return self._request(
-            "GET",
-            f"/v1/approvals/{job_id}",
-        )
+    def get_approval(self, job_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/approvals/{job_id}")
 
     def approve_job(
         self,
@@ -117,10 +85,7 @@ class CustomAPIClient:
         return self._request(
             "POST",
             f"/v1/approvals/{job_id}/approve",
-            json={
-                "reviewer": reviewer,
-                "reason": reason,
-            },
+            json={"reviewer": reviewer, "reason": reason},
         )
 
     def reject_job(
@@ -133,77 +98,36 @@ class CustomAPIClient:
         return self._request(
             "POST",
             f"/v1/approvals/{job_id}/reject",
-            json={
-                "reviewer": reviewer,
-                "reason": reason,
-            },
+            json={"reviewer": reviewer, "reason": reason},
         )
 
-    def get_audit(
-        self,
-        job_id: str,
-    ) -> list[dict[str, Any]]:
-        data = self._request(
-            "GET",
-            f"/v1/audit/{job_id}",
-        )
+    def get_audit(self, job_id: str) -> list[dict[str, Any]]:
+        data = self._request("GET", f"/v1/audit/{job_id}")
         if not isinstance(data, list):
-            raise CustomAPIError(
-                "audit endpoint returned non-list JSON"
-            )
+            raise CustomAPIError("audit endpoint returned non-list JSON")
         return data
 
-    def publish(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/publish",
-            json=payload,
-        )
+    def publish(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/publish", json=payload)
 
-    def create_product(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/products",
-            json=payload,
-        )
+    def create_product(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/products", json=payload)
+
+    def record_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/transactions", json=payload)
 
     def get_revenue(
         self,
         *,
         since: str | None = None,
     ) -> dict[str, Any]:
-        params = (
-            {"since": since}
-            if since
-            else None
-        )
-        return self._request(
-            "GET",
-            "/v1/revenue",
-            params=params,
-        )
+        params = {"since": since} if since else None
+        return self._request("GET", "/v1/revenue", params=params)
 
-    def record_event(
-        self,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/events",
-            json=payload,
-        )
+    def record_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/v1/events", json=payload)
 
-    def get_metrics(
-        self,
-        *,
-        window: str = "7d",
-    ) -> dict[str, Any]:
+    def get_metrics(self, *, window: str = "7d") -> dict[str, Any]:
         return self._request(
             "GET",
             "/v1/metrics",

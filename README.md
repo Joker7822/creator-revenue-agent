@@ -22,8 +22,8 @@ Creator Revenue Agent
            +--> Policy API
            +--> Approval API
            +--> Publishing API
+           +--> Billing API
            +--> Audit API
-           +--> Billing API        (next)
            +--> Analytics API      (next)
     |
     +--> SQL database
@@ -33,76 +33,74 @@ Creator Revenue Agent
 
 Implemented:
 
-- `GET /health`
-- `POST /v1/content/generate`
-- `POST /v1/policy/evaluate`
-- `POST /v1/approvals`
-- `GET /v1/approvals/{job_id}`
-- `POST /v1/approvals/{job_id}/approve`
-- `POST /v1/approvals/{job_id}/reject`
-- `POST /v1/publish`
-- `GET /v1/publications/{job_id}`
-- `GET /v1/audit/{job_id}`
+- content metadata and policy APIs
+- human approval workflow
+- gated/idempotent publishing
+- products and proprietary transaction ingestion
+- revenue aggregation by currency
+- audit trail
 - bearer-token service authentication
-- persistent job, policy, approval, publication and audit state
-- SQLite development database
-- SQLAlchemy persistence abstraction
-- FastAPI server
-- Docker image
-- pytest / GitHub Actions CI
+- SQLite development database / SQLAlchemy abstraction
+- FastAPI / Docker / pytest / GitHub Actions CI
 
-The current content endpoint generates **non-explicit campaign metadata only**. The publishing endpoint records an approved internal publication state; external asset delivery adapters are not implemented yet.
+## Billing model
 
-## Publishing gate
+Money is stored as integer **minor units** plus a 3-letter currency code.
 
-A job can be published only when both conditions are true:
+Examples:
 
 ```text
-policy_allowed == true
-AND
-approval.status == approved
+JPY 1500 -> ¥1,500
+USD 1500 -> $15.00
 ```
 
-Publishing is idempotent by `job_id`; repeated requests return the existing publication instead of creating duplicates.
+The API never sums different currencies together. Revenue is returned in one bucket per currency.
+
+## Billing endpoints
+
+```text
+POST /v1/products
+GET  /v1/products/{product_id}
+POST /v1/transactions
+GET  /v1/revenue
+```
+
+A product can only be created for an existing published publication.
+
+Transactions require a caller-supplied `transaction_id` and are idempotent. Reusing the same ID with different transaction data returns HTTP 409.
+
+Supported transaction kinds:
+
+- `sale`
+- `refund`
 
 ## Core flow
 
 ```text
 Metadata
    |
-   v
 Policy
    |
-   v
 Approval
    |
-   +---- rejected -> stop
+Publish
    |
- approved
+Product
    |
-   v
-Publication record
+Transaction
    |
-   v
-Audit trail
+Revenue by currency
    |
-   v
-Billing / analytics (next)
+Analytics / optimization (next)
 ```
 
-## Database
-
-Default development database:
-
-```text
-sqlite:///./agent.db
-```
-
-Database tables:
+## Database tables
 
 - `jobs`
 - `approvals`
 - `publications`
+- `products`
+- `transactions`
 - `audit_events`
 
 For production, use a managed SQL database and schema migrations before deployment.
@@ -123,25 +121,14 @@ Run tests:
 pytest -q
 ```
 
-## Authentication
-
-Protected endpoints require:
-
-```http
-Authorization: Bearer <INTERNAL_API_TOKEN>
-```
-
 ## Safety baseline
 
 - Adults only; reject minors and age-ambiguous cases.
-- Require positive age verification.
-- Require documented consent.
+- Require positive age verification and documented consent.
 - Real-person sexual depictions require separately verified consent.
-- Approval cannot be created until policy evaluation has passed.
-- Publishing cannot occur until approval is explicitly approved.
-- Human review is enabled by default.
+- Publishing requires both policy success and explicit approval.
 - Explicit assets must live outside GitHub.
-- Secrets and verification documents must never be committed.
+- Identity, consent and payment secrets must not be committed.
 
 ## Repository
 
