@@ -30,7 +30,10 @@ from api_server.rollouts import (
     create_change_set,
     decide_change_set,
     get_change_set,
+    get_rollback,
     get_rollout,
+    monitor_rollout,
+    rollback_rollout,
 )
 from api_server.repository import (
     create_approval,
@@ -87,7 +90,10 @@ from api_server.schemas import (
     PublicationResponse,
     PublishRequest,
     RevenueResponse,
+    RollbackRequest,
+    RollbackResponse,
     RolloutApplyRequest,
+    RolloutMonitorResponse,
     RolloutResponse,
     TransactionCreateRequest,
     TransactionResponse,
@@ -99,7 +105,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.11.0",
+    version="0.12.0",
 )
 
 
@@ -690,6 +696,54 @@ def rollout_get(
 ) -> RolloutResponse:
     with SessionLocal() as session:
         return get_rollout(session, rollout_id)
+
+
+@app.get(
+    "/v1/rollouts/{rollout_id}/monitor",
+    response_model=RolloutMonitorResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def rollout_monitor(
+    rollout_id: str,
+) -> RolloutMonitorResponse:
+    with SessionLocal() as session:
+        return monitor_rollout(
+            session,
+            rollout_id=rollout_id,
+        )
+
+
+@app.post(
+    "/v1/rollouts/{rollout_id}/rollback",
+    response_model=RollbackResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def rollout_rollback(
+    rollout_id: str,
+    request: RollbackRequest,
+) -> RollbackResponse:
+    with SessionLocal() as session:
+        return rollback_rollout(
+            session,
+            rollout_id=rollout_id,
+            actor=request.actor,
+            reason=request.reason,
+        )
+
+
+@app.get(
+    "/v1/rollbacks/{rollback_id}",
+    response_model=RollbackResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def rollback_get(
+    rollback_id: str,
+) -> RollbackResponse:
+    with SessionLocal() as session:
+        return get_rollback(
+            session,
+            rollback_id=rollback_id,
+        )
 
 
 @app.get(

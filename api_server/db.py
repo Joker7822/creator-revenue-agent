@@ -472,6 +472,32 @@ class RolloutRecord(Base):
     )
 
 
+class RollbackRecord(Base):
+    __tablename__ = "rollbacks"
+    __table_args__ = (
+        UniqueConstraint(
+            "rollout_id",
+            name="uq_rollback_rollout",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    rollout_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("rollouts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor: Mapped[str] = mapped_column(String(120), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    rolled_back_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

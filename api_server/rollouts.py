@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -9,16 +10,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api_server.db import (
+    AnalyticsEventRecord,
     ChangeSetRecord,
     ExperimentRecord,
     ExperimentResultReviewRecord,
     ProductRecord,
     PublicationRecord,
+    RollbackRecord,
     RolloutRecord,
+    TransactionRecord,
 )
 from api_server.repository import add_audit
 from api_server.schemas import (
     ChangeSetResponse,
+    RollbackResponse,
+    RolloutMonitorCurrencySummary,
+    RolloutMonitorResponse,
     RolloutResponse,
 )
 
@@ -440,3 +447,319 @@ def get_rollout(
             detail="rollout not found",
         )
     return _rollout_response(record)
+
+
+
+def _rollback_response(
+    record: RollbackRecord,
+) -> RollbackResponse:
+    return RollbackResponse(
+        rollback_id=record.id,
+        rollout_id=record.rollout_id,
+        actor=record.actor,
+        reason=record.reason,
+        before=json.loads(record.before_json),
+        after=json.loads(record.after_json),
+        rolled_back_at=record.rolled_back_at,
+    )
+
+
+def monitor_rollout(
+    session: Session,
+    *,
+    rollout_id: str,
+) -> RolloutMonitorResponse:
+    rollout = session.get(RolloutRecord, rollout_id)
+    if rollout is None:
+        raise HTTPException(
+            status_code=404,
+            detail="rollout not found",
+        )
+
+    change_set = session.get(
+        ChangeSetRecord,
+        rollout.change_set_id,
+    )
+    if change_set is None:
+        raise HTTPException(
+            status_code=409,
+            detail="change set missing",
+        )
+
+    experiment = session.get(
+        ExperimentRecord,
+        change_set.experiment_id,
+    )
+    if experiment is None:
+        raise HTTPException(
+            status_code=409,
+            detail="experiment missing",
+        )
+
+    product = session.get(
+        ProductRecord,
+        change_set.product_id,
+    )
+    if product is None:
+        raise HTTPException(
+            status_code=409,
+            detail="product missing",
+        )
+
+    rollback = session.scalar(
+        select(RollbackRecord).where(
+            RollbackRecord.rollout_id == rollout_id
+        )
+    )
+
+    rollout_before = json.loads(rollout.before_json)
+    rollout_after = json.loads(rollout.after_json)
+    expected_state = (
+        rollout_before
+        if rollback is not None
+        else rollout_after
+    )
+    current_state = {
+        "currency": product.currency,
+        "price_minor_units": product.price_minor_units,
+    }
+    monitoring_status = (
+        "state_consistent"
+        if current_state == expected_state
+        else "state_drift"
+    )
+
+    publication_id = experiment.publication_id
+    event_statement = select(AnalyticsEventRecord).where(
+        AnalyticsEventRecord.publication_id == publication_id,
+        AnalyticsEventRecord.occurred_at >= rollout.applied_at,
+    )
+    transaction_statement = select(TransactionRecord).where(
+        TransactionRecord.product_id == product.id,
+        TransactionRecord.occurred_at >= rollout.applied_at,
+    )
+
+    metrics_window_end = None
+    if rollback is not None:
+        metrics_window_end = rollback.rolled_back_at
+        event_statement = event_statement.where(
+            AnalyticsEventRecord.occurred_at
+            <= rollback.rolled_back_at
+        )
+        transaction_statement = transaction_statement.where(
+            TransactionRecord.occurred_at
+            <= rollback.rolled_back_at
+        )
+
+    events = session.scalars(event_statement).all()
+    transactions = session.scalars(
+        transaction_statement
+    ).all()
+
+    impressions = sum(
+        1
+        for row in events
+        if row.event_type == "impression"
+    )
+    clicks = sum(
+        1
+        for row in events
+        if row.event_type == "click"
+    )
+
+    purchases = 0
+    refunds = 0
+    totals: dict[str, dict[str, int]] = defaultdict(
+        lambda: {
+            "sales_minor_units": 0,
+            "refunds_minor_units": 0,
+        }
+    )
+    for transaction in transactions:
+        bucket = totals[transaction.currency]
+        if transaction.kind == "sale":
+            purchases += 1
+            bucket["sales_minor_units"] += (
+                transaction.amount_minor_units
+            )
+        elif transaction.kind == "refund":
+            refunds += 1
+            bucket["refunds_minor_units"] += (
+                transaction.amount_minor_units
+            )
+
+    currencies = [
+        RolloutMonitorCurrencySummary(
+            currency=currency,
+            sales_minor_units=values[
+                "sales_minor_units"
+            ],
+            refunds_minor_units=values[
+                "refunds_minor_units"
+            ],
+            net_revenue_minor_units=(
+                values["sales_minor_units"]
+                - values["refunds_minor_units"]
+            ),
+        )
+        for currency, values in sorted(totals.items())
+    ]
+
+    return RolloutMonitorResponse(
+        rollout_id=rollout.id,
+        rollout_status=rollout.status,
+        monitoring_status=monitoring_status,
+        expected_state=expected_state,
+        current_state=current_state,
+        metrics_window_start=rollout.applied_at,
+        metrics_window_end=metrics_window_end,
+        impressions=impressions,
+        clicks=clicks,
+        purchases=purchases,
+        refunds=refunds,
+        ctr=(clicks / impressions) if impressions else 0.0,
+        cvr=(purchases / clicks) if clicks else 0.0,
+        currencies=currencies,
+    )
+
+
+def rollback_rollout(
+    session: Session,
+    *,
+    rollout_id: str,
+    actor: str,
+    reason: str,
+) -> RollbackResponse:
+    existing = session.scalar(
+        select(RollbackRecord).where(
+            RollbackRecord.rollout_id == rollout_id
+        )
+    )
+    if existing is not None:
+        return _rollback_response(existing)
+
+    rollout = session.get(RolloutRecord, rollout_id)
+    if rollout is None:
+        raise HTTPException(
+            status_code=404,
+            detail="rollout not found",
+        )
+    if rollout.status != "applied":
+        raise HTTPException(
+            status_code=409,
+            detail="applied rollout required",
+        )
+
+    change_set = session.get(
+        ChangeSetRecord,
+        rollout.change_set_id,
+    )
+    if change_set is None:
+        raise HTTPException(
+            status_code=409,
+            detail="change set missing",
+        )
+    if change_set.change_type != "product_price":
+        raise HTTPException(
+            status_code=409,
+            detail="unsupported rollback change type",
+        )
+
+    experiment = session.get(
+        ExperimentRecord,
+        change_set.experiment_id,
+    )
+    if experiment is None:
+        raise HTTPException(
+            status_code=409,
+            detail="experiment missing",
+        )
+
+    product = session.get(
+        ProductRecord,
+        change_set.product_id,
+    )
+    if product is None or not product.active:
+        raise HTTPException(
+            status_code=409,
+            detail="active product required",
+        )
+
+    expected_current = json.loads(rollout.after_json)
+    restore_state = json.loads(rollout.before_json)
+    current_state = {
+        "currency": product.currency,
+        "price_minor_units": product.price_minor_units,
+    }
+
+    if current_state != expected_current:
+        raise HTTPException(
+            status_code=409,
+            detail="production state changed since rollout",
+        )
+
+    if restore_state.get("currency") != product.currency:
+        raise HTTPException(
+            status_code=409,
+            detail="rollback currency mismatch",
+        )
+
+    product.price_minor_units = int(
+        restore_state["price_minor_units"]
+    )
+
+    rollback = RollbackRecord(
+        id=f"rb_{uuid4().hex}",
+        rollout_id=rollout.id,
+        actor=actor,
+        reason=reason,
+        before_json=json.dumps(
+            current_state,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        after_json=json.dumps(
+            restore_state,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+    )
+    session.add(rollback)
+    rollout.status = "rolled_back"
+    change_set.status = "rolled_back"
+
+    publication = session.get(
+        PublicationRecord,
+        experiment.publication_id,
+    )
+    add_audit(
+        session,
+        job_id=publication.job_id if publication else None,
+        event_type="rollout_rolled_back",
+        actor=actor,
+        payload={
+            "rollback_id": rollback.id,
+            "rollout_id": rollout.id,
+            "change_set_id": change_set.id,
+            "reason": reason,
+            "before": current_state,
+            "after": restore_state,
+        },
+    )
+
+    session.commit()
+    session.refresh(rollback)
+    return _rollback_response(rollback)
+
+
+def get_rollback(
+    session: Session,
+    rollback_id: str,
+) -> RollbackResponse:
+    record = session.get(RollbackRecord, rollback_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail="rollback not found",
+        )
+    return _rollback_response(record)

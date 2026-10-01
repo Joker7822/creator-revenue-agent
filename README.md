@@ -275,3 +275,26 @@ Safety rules:
 - apply checks that the live product price still matches the experiment control value
 - duplicate apply calls return the same rollout record
 - creative and posting-time recommendations remain non-executable until separate production adapters exist
+
+
+## Rollout monitoring and rollback
+
+Applied rollouts can be monitored without automatically deciding whether business performance is good or bad.
+
+```text
+GET  /v1/rollouts/{rollout_id}/monitor
+POST /v1/rollouts/{rollout_id}/rollback
+GET  /v1/rollbacks/{rollback_id}
+```
+
+The monitor reports:
+
+- whether the current production state still matches the expected rollout state
+- post-rollout impressions and clicks
+- purchases and refunds
+- CTR and CVR
+- revenue separated by currency
+
+The monitor never auto-rolls back. A rollback requires an explicit actor and reason.
+
+Rollback uses another optimistic state check. If production has changed since the rollout, rollback returns HTTP 409 rather than overwriting the intervening change. A successful rollback restores the exact pre-rollout price and is idempotent.

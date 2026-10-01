@@ -422,6 +422,49 @@ class RolloutResponse(BaseModel):
     applied_at: datetime
 
 
+class RolloutMonitorCurrencySummary(BaseModel):
+    currency: str
+    sales_minor_units: int
+    refunds_minor_units: int
+    net_revenue_minor_units: int
+
+
+class RolloutMonitorResponse(BaseModel):
+    rollout_id: str
+    rollout_status: str
+    monitoring_status: Literal[
+        "state_consistent",
+        "state_drift",
+    ]
+    automatic_rollback: Literal[False] = False
+    expected_state: dict[str, Any]
+    current_state: dict[str, Any]
+    metrics_window_start: datetime
+    metrics_window_end: datetime | None
+    impressions: int
+    clicks: int
+    purchases: int
+    refunds: int
+    ctr: float
+    cvr: float
+    currencies: list[RolloutMonitorCurrencySummary]
+
+
+class RollbackRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class RollbackResponse(BaseModel):
+    rollback_id: str
+    rollout_id: str
+    actor: str
+    reason: str
+    before: dict[str, Any]
+    after: dict[str, Any]
+    rolled_back_at: datetime
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

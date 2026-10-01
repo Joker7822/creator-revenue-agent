@@ -254,3 +254,30 @@ Approval uses separation of duties: the approver cannot be the experiment-result
 Apply uses optimistic concurrency. If the live product currency or price differs from the expected control state recorded in the change set, the API returns HTTP 409 and makes no change.
 
 Rollout application is idempotent per change set.
+
+
+## Rollout monitoring
+
+```text
+GET /v1/rollouts/{rollout_id}/monitor
+```
+
+Returns current-vs-expected production state plus descriptive metrics from rollout application time. If a rollback occurred, the metric window ends at the rollback timestamp.
+
+`monitoring_status` is:
+
+- `state_consistent`
+- `state_drift`
+
+Business metrics are descriptive only. The API does not automatically classify a rollout as successful or harmful and does not trigger automatic rollback.
+
+## Rollback
+
+```text
+POST /v1/rollouts/{rollout_id}/rollback
+GET  /v1/rollbacks/{rollback_id}
+```
+
+Rollback requires an explicit actor and non-empty reason. Before restoring state, the server checks that the current product state exactly matches the state applied by the rollout. Any intervening production change causes HTTP 409.
+
+Rollback is idempotent per rollout and restores the persisted pre-rollout state.

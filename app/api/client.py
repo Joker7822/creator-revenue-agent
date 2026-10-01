@@ -282,6 +282,28 @@ class CustomAPIClient:
             json={"actor": actor},
         )
 
+    def monitor_rollout(
+        self,
+        rollout_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/rollouts/{rollout_id}/monitor",
+        )
+
+    def rollback_rollout(
+        self,
+        rollout_id: str,
+        *,
+        actor: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/rollouts/{rollout_id}/rollback",
+            json={"actor": actor, "reason": reason},
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,

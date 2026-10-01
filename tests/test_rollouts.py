@@ -366,3 +366,213 @@ def test_rollout_blocks_stale_production_state(
         headers=auth(),
     ).json()
     assert product["price_minor_units"] == 1400
+
+
+
+def _approved_and_applied_rollout(
+    monkeypatch,
+) -> tuple[dict, dict]:
+    state = setup_price_review(
+        monkeypatch,
+        "variant_preferred",
+    )
+    change_set = create_change_set(state)
+
+    approved = client.post(
+        (
+            f"/v1/change-sets/"
+            f"{change_set['change_set_id']}/approve"
+        ),
+        headers=auth(),
+        json={"actor": "release-manager"},
+    )
+    assert approved.status_code == 200
+
+    rollout = client.post(
+        (
+            f"/v1/change-sets/"
+            f"{change_set['change_set_id']}/apply"
+        ),
+        headers=auth(),
+        json={"actor": "rollout-operator"},
+    )
+    assert rollout.status_code == 200
+    return state, rollout.json()
+
+
+def test_rollout_monitor_reports_state_and_metrics(
+    monkeypatch,
+) -> None:
+    state, rollout = _approved_and_applied_rollout(
+        monkeypatch,
+    )
+    publication_id = state["experiment"]["publication_id"]
+
+    client.post(
+        "/v1/events",
+        headers=auth(),
+        json={
+            "event_id": "post_rollout_impression",
+            "publication_id": publication_id,
+            "event_type": "impression",
+        },
+    )
+    client.post(
+        "/v1/events",
+        headers=auth(),
+        json={
+            "event_id": "post_rollout_click",
+            "publication_id": publication_id,
+            "event_type": "click",
+        },
+    )
+    client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "post_rollout_sale",
+            "product_id": state["product"]["product_id"],
+            "kind": "sale",
+            "amount_minor_units": 1350,
+            "currency": "JPY",
+        },
+    )
+
+    response = client.get(
+        (
+            f"/v1/rollouts/"
+            f"{rollout['rollout_id']}/monitor"
+        ),
+        headers=auth(),
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["monitoring_status"] == "state_consistent"
+    assert data["automatic_rollback"] is False
+    assert data["current_state"]["price_minor_units"] == 1350
+    assert data["impressions"] == 1
+    assert data["clicks"] == 1
+    assert data["purchases"] == 1
+    assert data["ctr"] == 1.0
+    assert data["cvr"] == 1.0
+    assert data["currencies"] == [
+        {
+            "currency": "JPY",
+            "sales_minor_units": 1350,
+            "refunds_minor_units": 0,
+            "net_revenue_minor_units": 1350,
+        }
+    ]
+
+
+def test_rollback_restores_price_and_is_idempotent(
+    monkeypatch,
+) -> None:
+    state, rollout = _approved_and_applied_rollout(
+        monkeypatch,
+    )
+    url = (
+        f"/v1/rollouts/{rollout['rollout_id']}/rollback"
+    )
+    payload = {
+        "actor": "incident-manager",
+        "reason": "manual rollback test",
+    }
+
+    first = client.post(
+        url,
+        headers=auth(),
+        json=payload,
+    )
+    second = client.post(
+        url,
+        headers=auth(),
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["rollback_id"] == (
+        second.json()["rollback_id"]
+    )
+    assert first.json()["before"]["price_minor_units"] == 1350
+    assert first.json()["after"]["price_minor_units"] == 1500
+
+    product = client.get(
+        f"/v1/products/{state['product']['product_id']}",
+        headers=auth(),
+    ).json()
+    assert product["price_minor_units"] == 1500
+
+    rollout_state = client.get(
+        f"/v1/rollouts/{rollout['rollout_id']}",
+        headers=auth(),
+    ).json()
+    assert rollout_state["status"] == "rolled_back"
+
+    monitor = client.get(
+        (
+            f"/v1/rollouts/"
+            f"{rollout['rollout_id']}/monitor"
+        ),
+        headers=auth(),
+    ).json()
+    assert monitor["monitoring_status"] == "state_consistent"
+    assert monitor["expected_state"]["price_minor_units"] == 1500
+    assert monitor["metrics_window_end"] is not None
+
+    audit = client.get(
+        f"/v1/audit/{state['job']['job_id']}",
+        headers=auth(),
+    ).json()
+    events = [row["event_type"] for row in audit]
+    assert events.count("rollout_rolled_back") == 1
+
+
+def test_rollback_blocks_stale_production_state(
+    monkeypatch,
+) -> None:
+    state, rollout = _approved_and_applied_rollout(
+        monkeypatch,
+    )
+
+    with SessionLocal() as session:
+        product = session.get(
+            ProductRecord,
+            state["product"]["product_id"],
+        )
+        assert product is not None
+        product.price_minor_units = 1400
+        session.commit()
+
+    monitor = client.get(
+        (
+            f"/v1/rollouts/"
+            f"{rollout['rollout_id']}/monitor"
+        ),
+        headers=auth(),
+    )
+    assert monitor.status_code == 200
+    assert monitor.json()["monitoring_status"] == "state_drift"
+
+    response = client.post(
+        (
+            f"/v1/rollouts/"
+            f"{rollout['rollout_id']}/rollback"
+        ),
+        headers=auth(),
+        json={
+            "actor": "incident-manager",
+            "reason": "attempt stale rollback",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "production state changed since rollout"
+    )
+
+    product = client.get(
+        f"/v1/products/{state['product']['product_id']}",
+        headers=auth(),
+    ).json()
+    assert product["price_minor_units"] == 1400

@@ -53,3 +53,12 @@ The starter uses bearer authentication for simplicity. Production deployments sh
 - Rollout apply performs an optimistic state check before mutation.
 - Price changes are capped to the experiment's 10% safety bound.
 - Current actor strings are still caller-asserted behind service authentication; production should derive actors from cryptographically authenticated identities and authorization roles.
+
+
+## Rollback controls
+
+- Monitoring is observational and never performs an automatic rollback.
+- Rollback requires an explicit authenticated request, actor, and reason.
+- Rollback uses optimistic concurrency and refuses to overwrite intervening production changes.
+- Rollback records before/after state and writes an audit event.
+- Actor strings remain caller-asserted in the MVP; production must bind actor identity to authenticated roles.
