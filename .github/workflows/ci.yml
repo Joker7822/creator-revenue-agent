@@ -39,3 +39,50 @@ jobs:
           INTERNAL_API_TOKEN: test-token
           DATABASE_URL: sqlite:///./ci-agent.db
         run: pytest -q
+
+
+  postgres-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: creator_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d creator_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Migrate PostgreSQL database
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent
+        run: |
+          alembic upgrade head
+          alembic current
+
+      - name: PostgreSQL row-lock tests
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent
+          CUSTOM_API_BASE_URL: http://127.0.0.1:8000
+          CUSTOM_API_TOKEN: test-token
+          INTERNAL_API_TOKEN: test-token
+          PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE: "true"
+        run: pytest -q tests/test_postgres_concurrency.py

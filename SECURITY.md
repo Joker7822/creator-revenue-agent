@@ -191,3 +191,13 @@ High-risk workflow actions now use server-configured service identities and role
 - `GET /v1/ops/status` requires service authentication.
 - Operational counters are process-local and are not an audit system. Security and compliance history remains in the authenticated audit chain/WORM anchor.
 - Rollout `state_drift` is an incident signal even though the monitor endpoint itself returns HTTP 200.
+
+
+## Failure-recovery validation
+
+- Dependency failure tests verify fail-closed behavior and successful recovery, not only error responses.
+- Verification webhook authentication failures do not create idempotency ledger entries, allowing the same provider event to be retried after key/configuration recovery.
+- External anchor outages prevent production readiness and fresh-anchor-gated rollout rather than degrading open.
+- DB-backed idempotency is tested across loss of process-local observability state.
+- PostgreSQL CI validates actual row-lock blocking semantics; SQLite tests alone are not treated as evidence of production locking behavior.
+- External WORM state is used to detect restoration of an otherwise internally valid older database snapshot.

@@ -600,3 +600,17 @@ The endpoint reports request/status counters, error classes, route-template late
 Incident signals include authentication rejection, verification-webhook rejection, audit-anchor failure, rollout apply failure, rollout state drift, rollback failure, readiness failure, and server/dependency 5xx.
 
 These counters are process-local and reset on restart. Production should export the structured logs and status metrics to durable monitoring/alerting infrastructure.
+
+
+## Failure and recovery validation
+
+CI now exercises explicit recovery scenarios in addition to happy-path tests:
+
+- trusted-verification provider absence blocks content creation until signed provider events arrive
+- a retired webhook key is rejected without poisoning event idempotency; retrying the same event with the active key succeeds
+- external/WORM anchor outage makes production readiness fail closed, then returns to ready after the dependency recovers and a fresh anchor is written
+- process-local observability reset does not affect DB-backed webhook idempotency
+- restoration to an older internally valid database snapshot is rejected by production readiness because the external anchor remains ahead
+- a dedicated PostgreSQL CI job validates real `SELECT ... FOR UPDATE` serialization
+
+Operational recovery procedures are documented in `RECOVERY_RUNBOOK.md`.
