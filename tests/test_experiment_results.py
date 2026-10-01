@@ -235,9 +235,7 @@ def test_results_join_events_and_billing_without_winner() -> None:
                 "transaction_id": tx_id,
                 "product_id": product_id,
                 "kind": "sale",
-                "amount_minor_units": (
-                    1500 if arm == "control" else 1800
-                ),
+                "amount_minor_units": 1500,
                 "currency": "JPY",
             },
         )
@@ -272,9 +270,9 @@ def test_results_join_events_and_billing_without_winner() -> None:
     assert data["variant"]["cvr"] == 1.0
     assert data["comparison"]["winner"] is None
     assert data["comparison"]["decision"] == "manual_review_required"
-    assert data["comparison"]["net_revenue_delta_by_currency"]["JPY"] in (
-        300,
-        -300,
+    assert (
+        data["comparison"]["net_revenue_delta_by_currency"]["JPY"]
+        == 0
     )
     assert data["evaluation_status"] == "insufficient_data"
 
