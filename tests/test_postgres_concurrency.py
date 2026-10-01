@@ -136,6 +136,7 @@ def test_concurrent_refunds_never_exceed_original_sale() -> None:
                 policy_allowed=True,
             )
         )
+        session.flush()
         session.add(
             PublicationRecord(
                 id="pub_refund_race",
@@ -145,6 +146,7 @@ def test_concurrent_refunds_never_exceed_original_sale() -> None:
                 publisher="test",
             )
         )
+        session.flush()
         session.add(
             ProductRecord(
                 id="prod_refund_race",
@@ -155,6 +157,7 @@ def test_concurrent_refunds_never_exceed_original_sale() -> None:
                 active=True,
             )
         )
+        session.flush()
         session.add(
             TransactionRecord(
                 id="sale_refund_race",
