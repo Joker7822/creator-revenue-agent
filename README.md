@@ -557,3 +557,20 @@ ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true
 ```
 
 When enabled, an approved change set cannot be applied if the external anchor is missing, invalid, stale, behind by too many events, or indicates database rollback.
+
+
+## Concurrent state transitions
+
+Mutable workflow records now use optimistic `state_version` columns in addition to database row locks.
+
+Protected state machines include human approvals, optimization proposal decisions, experiment lifecycle transitions, change-set decisions, product price state, and rollout state.
+
+On row-locking databases, transition handlers acquire `SELECT ... FOR UPDATE` locks before validating and mutating state. SQLAlchemy also emits version-qualified updates so a stale writer that bypasses or races the lock is rejected.
+
+Production readiness includes a `database_concurrency` check. Production should keep:
+
+```text
+PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true
+```
+
+SQLite remains supported for local development and CI, where optimistic version checks still reject stale writes, but it is not considered a row-locking production database.

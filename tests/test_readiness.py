@@ -260,3 +260,28 @@ def test_freshness_endpoint_reports_limits(
     assert data["fresh"] is True
     assert data["max_age_seconds"] == 300
     assert data["max_unanchored_events"] == 10
+
+
+
+def test_readiness_fails_when_row_locking_database_is_required(
+    monkeypatch,
+) -> None:
+    create_job()
+    store = WormStore()
+    make_anchor(monkeypatch, store)
+    production_settings(monkeypatch)
+    monkeypatch.setenv(
+        "PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE",
+        "true",
+    )
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    data = response.json()
+    database_check = next(
+        row
+        for row in data["checks"]
+        if row["name"] == "database_concurrency"
+    )
+    assert database_check["ready"] is False
+    assert "dialect=sqlite" in database_check["detail"]

@@ -7,7 +7,9 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from api_server.audit_anchor import assert_audit_anchor_fresh
 from api_server.db import (
@@ -22,6 +24,10 @@ from api_server.db import (
     TransactionRecord,
 )
 from api_server.repository import add_audit
+from api_server.state_machine import (
+    commit_state_change,
+    lock_row,
+)
 from api_server.schemas import (
     ChangeSetResponse,
     RollbackResponse,
@@ -132,8 +138,10 @@ def create_change_set(
     review_id: str,
     created_by: str,
 ) -> ChangeSetResponse:
-    review = session.get(
+    review = lock_row(
+        session,
         ExperimentResultReviewRecord,
+        ExperimentResultReviewRecord.id,
         review_id,
     )
     if review is None:
@@ -148,9 +156,11 @@ def create_change_set(
         )
 
     existing = session.scalar(
-        select(ChangeSetRecord).where(
+        select(ChangeSetRecord)
+        .where(
             ChangeSetRecord.review_id == review_id
         )
+        .with_for_update()
     )
     if existing is not None:
         return _change_set_response(existing)
@@ -165,8 +175,10 @@ def create_change_set(
             detail="completed experiment required",
         )
 
-    product = session.get(
+    product = lock_row(
+        session,
         ProductRecord,
+        ProductRecord.id,
         experiment.product_id,
     )
     if product is None or not product.active:
@@ -225,7 +237,21 @@ def create_change_set(
             "proposed": proposed,
         },
     )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(
+            select(ChangeSetRecord).where(
+                ChangeSetRecord.review_id == review_id
+            )
+        )
+        if existing is not None:
+            return _change_set_response(existing)
+        raise HTTPException(
+            status_code=409,
+            detail="concurrent change-set creation detected",
+        )
     session.refresh(record)
     return _change_set_response(record)
 
@@ -251,7 +277,12 @@ def decide_change_set(
     actor: str,
     reason: str | None,
 ) -> ChangeSetResponse:
-    record = session.get(ChangeSetRecord, change_set_id)
+    record = lock_row(
+        session,
+        ChangeSetRecord,
+        ChangeSetRecord.id,
+        change_set_id,
+    )
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -309,7 +340,7 @@ def decide_change_set(
             "reason": reason,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(record)
     return _change_set_response(record)
 
@@ -320,7 +351,14 @@ def apply_change_set(
     change_set_id: str,
     actor: str,
 ) -> RolloutResponse:
-    record = session.get(ChangeSetRecord, change_set_id)
+    assert_audit_anchor_fresh(session)
+
+    record = lock_row(
+        session,
+        ChangeSetRecord,
+        ChangeSetRecord.id,
+        change_set_id,
+    )
     if record is None:
         raise HTTPException(
             status_code=404,
@@ -328,9 +366,11 @@ def apply_change_set(
         )
 
     existing = session.scalar(
-        select(RolloutRecord).where(
+        select(RolloutRecord)
+        .where(
             RolloutRecord.change_set_id == change_set_id
         )
+        .with_for_update()
     )
     if existing is not None:
         return _rollout_response(existing)
@@ -364,14 +404,17 @@ def apply_change_set(
             detail="completed experiment required",
         )
 
-    product = session.get(ProductRecord, record.product_id)
+    product = lock_row(
+        session,
+        ProductRecord,
+        ProductRecord.id,
+        record.product_id,
+    )
     if product is None or not product.active:
         raise HTTPException(
             status_code=409,
             detail="active product required",
         )
-
-    assert_audit_anchor_fresh(session)
 
     expected = json.loads(record.expected_json)
     proposed = json.loads(record.proposed_json)
@@ -434,7 +477,21 @@ def apply_change_set(
         },
     )
 
-    session.commit()
+    try:
+        session.commit()
+    except (StaleDataError, IntegrityError):
+        session.rollback()
+        existing = session.scalar(
+            select(RolloutRecord).where(
+                RolloutRecord.change_set_id == change_set_id
+            )
+        )
+        if existing is not None:
+            return _rollout_response(existing)
+        raise HTTPException(
+            status_code=409,
+            detail="concurrent rollout state change detected",
+        )
     session.refresh(rollout)
     return _rollout_response(rollout)
 
@@ -634,27 +691,43 @@ def rollback_rollout(
     reason: str,
 ) -> RollbackResponse:
     existing = session.scalar(
-        select(RollbackRecord).where(
+        select(RollbackRecord)
+        .where(
             RollbackRecord.rollout_id == rollout_id
         )
+        .with_for_update()
     )
     if existing is not None:
         return _rollback_response(existing)
 
-    rollout = session.get(RolloutRecord, rollout_id)
+    rollout = lock_row(
+        session,
+        RolloutRecord,
+        RolloutRecord.id,
+        rollout_id,
+    )
     if rollout is None:
         raise HTTPException(
             status_code=404,
             detail="rollout not found",
         )
     if rollout.status != "applied":
+        existing = session.scalar(
+            select(RollbackRecord).where(
+                RollbackRecord.rollout_id == rollout_id
+            )
+        )
+        if existing is not None:
+            return _rollback_response(existing)
         raise HTTPException(
             status_code=409,
             detail="applied rollout required",
         )
 
-    change_set = session.get(
+    change_set = lock_row(
+        session,
         ChangeSetRecord,
+        ChangeSetRecord.id,
         rollout.change_set_id,
     )
     if change_set is None:
@@ -678,8 +751,10 @@ def rollback_rollout(
             detail="experiment missing",
         )
 
-    product = session.get(
+    product = lock_row(
+        session,
         ProductRecord,
+        ProductRecord.id,
         change_set.product_id,
     )
     if product is None or not product.active:
@@ -750,7 +825,21 @@ def rollback_rollout(
         },
     )
 
-    session.commit()
+    try:
+        session.commit()
+    except (StaleDataError, IntegrityError):
+        session.rollback()
+        existing = session.scalar(
+            select(RollbackRecord).where(
+                RollbackRecord.rollout_id == rollout_id
+            )
+        )
+        if existing is not None:
+            return _rollback_response(existing)
+        raise HTTPException(
+            status_code=409,
+            detail="concurrent rollback state change detected",
+        )
     session.refresh(rollback)
     return _rollback_response(rollback)
 

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api_server.db import (
@@ -22,6 +23,10 @@ from api_server.db import (
     TransactionRecord,
 )
 from api_server.repository import add_audit
+from api_server.state_machine import (
+    commit_state_change,
+    lock_row,
+)
 from api_server.schemas import (
     ExperimentArmResult,
     ExperimentAssignmentResponse,
@@ -131,7 +136,12 @@ def create_experiment(
     recommendation_index: int,
     owner: str,
 ) -> ExperimentResponse:
-    proposal = session.get(OptimizationProposalRecord, proposal_id)
+    proposal = lock_row(
+        session,
+        OptimizationProposalRecord,
+        OptimizationProposalRecord.id,
+        proposal_id,
+    )
     if proposal is None:
         raise HTTPException(
             status_code=404,
@@ -160,7 +170,12 @@ def create_experiment(
             detail="recommendation index out of range",
         )
 
-    product = session.get(ProductRecord, proposal.product_id)
+    product = lock_row(
+        session,
+        ProductRecord,
+        ProductRecord.id,
+        proposal.product_id,
+    )
     if product is None or not product.active:
         raise HTTPException(
             status_code=409,
@@ -206,7 +221,23 @@ def create_experiment(
         },
     )
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(
+            select(ExperimentRecord).where(
+                ExperimentRecord.proposal_id == proposal_id,
+                ExperimentRecord.recommendation_index
+                == recommendation_index,
+            )
+        )
+        if existing is not None:
+            return _response(existing)
+        raise HTTPException(
+            status_code=409,
+            detail="concurrent experiment creation detected",
+        )
     session.refresh(experiment)
     return _response(experiment)
 
@@ -230,7 +261,12 @@ def start_experiment(
     experiment_id: str,
     actor: str,
 ) -> ExperimentResponse:
-    experiment = session.get(ExperimentRecord, experiment_id)
+    experiment = lock_row(
+        session,
+        ExperimentRecord,
+        ExperimentRecord.id,
+        experiment_id,
+    )
     if experiment is None:
         raise HTTPException(
             status_code=404,
@@ -261,7 +297,7 @@ def start_experiment(
             "automatic_application": False,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(experiment)
     return _response(experiment)
 
@@ -273,7 +309,12 @@ def complete_experiment(
     actor: str,
     outcome: dict[str, Any],
 ) -> ExperimentResponse:
-    experiment = session.get(ExperimentRecord, experiment_id)
+    experiment = lock_row(
+        session,
+        ExperimentRecord,
+        ExperimentRecord.id,
+        experiment_id,
+    )
     if experiment is None:
         raise HTTPException(
             status_code=404,
@@ -326,7 +367,7 @@ def complete_experiment(
             "outcome": outcome,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(experiment)
     return _response(experiment)
 
@@ -338,7 +379,12 @@ def cancel_experiment(
     actor: str,
     reason: str | None,
 ) -> ExperimentResponse:
-    experiment = session.get(ExperimentRecord, experiment_id)
+    experiment = lock_row(
+        session,
+        ExperimentRecord,
+        ExperimentRecord.id,
+        experiment_id,
+    )
     if experiment is None:
         raise HTTPException(
             status_code=404,
@@ -374,7 +420,7 @@ def cancel_experiment(
             "reason": reason,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(experiment)
     return _response(experiment)
 

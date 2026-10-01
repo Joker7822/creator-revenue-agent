@@ -14,6 +14,10 @@ from api_server.db import (
     PublicationRecord,
 )
 from api_server.repository import add_audit, get_metrics
+from api_server.state_machine import (
+    commit_state_change,
+    lock_row,
+)
 from api_server.schemas import OptimizationProposalResponse
 
 
@@ -200,7 +204,7 @@ def create_optimization_proposal(
             "window": window,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(proposal)
     return _response(proposal)
 
@@ -209,7 +213,12 @@ def get_optimization_proposal(
     session: Session,
     proposal_id: str,
 ) -> OptimizationProposalResponse:
-    proposal = session.get(OptimizationProposalRecord, proposal_id)
+    proposal = lock_row(
+        session,
+        OptimizationProposalRecord,
+        OptimizationProposalRecord.id,
+        proposal_id,
+    )
     if proposal is None:
         raise HTTPException(
             status_code=404,
@@ -226,7 +235,12 @@ def decide_optimization_proposal(
     reviewer: str,
     reason: str | None,
 ) -> OptimizationProposalResponse:
-    proposal = session.get(OptimizationProposalRecord, proposal_id)
+    proposal = lock_row(
+        session,
+        OptimizationProposalRecord,
+        OptimizationProposalRecord.id,
+        proposal_id,
+    )
     if proposal is None:
         raise HTTPException(
             status_code=404,
@@ -260,6 +274,6 @@ def decide_optimization_proposal(
             "reason": reason,
         },
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(proposal)
     return _response(proposal)

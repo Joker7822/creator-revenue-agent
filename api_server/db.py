@@ -46,6 +46,30 @@ SessionLocal = sessionmaker(
 )
 
 
+def production_database_locking_status() -> tuple[bool, str]:
+    require_row_locking = os.getenv(
+        "PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE",
+        "true",
+    ).lower() in {"1", "true", "yes", "on"}
+    dialect = engine.dialect.name
+    row_locking_dialects = {
+        "postgresql",
+        "mysql",
+        "mariadb",
+        "oracle",
+    }
+    supports_row_locking = dialect in row_locking_dialects
+    ready = supports_row_locking or not require_row_locking
+    return (
+        ready,
+        (
+            f"dialect={dialect}; "
+            f"require_row_locking={require_row_locking}; "
+            f"row_locking={supports_row_locking}"
+        ),
+    )
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -211,6 +235,12 @@ class ApprovalRecord(Base):
         primary_key=True,
     )
     status: Mapped[str] = mapped_column(String(32), default="pending_review")
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     required: Mapped[bool] = mapped_column(Boolean, default=True)
     reviewer: Mapped[str | None] = mapped_column(String(120), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -222,6 +252,10 @@ class ApprovalRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class PublicationRecord(Base):
@@ -259,11 +293,21 @@ class ProductRecord(Base):
     name: Mapped[str] = mapped_column(String(200))
     currency: Mapped[str] = mapped_column(String(3), index=True)
     price_minor_units: Mapped[int] = mapped_column(Integer)
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class TransactionRecord(Base):
@@ -335,6 +379,12 @@ class OptimizationProposalRecord(Base):
         default="pending_review",
         index=True,
     )
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     metrics_json: Mapped[str] = mapped_column(Text)
     recommendations_json: Mapped[str] = mapped_column(Text)
     reviewer: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -347,6 +397,10 @@ class OptimizationProposalRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class ExperimentRecord(Base):
@@ -384,6 +438,12 @@ class ExperimentRecord(Base):
         default="draft",
         index=True,
     )
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     plan_json: Mapped[str] = mapped_column(Text)
     owner: Mapped[str] = mapped_column(String(120))
     outcome_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -399,6 +459,10 @@ class ExperimentRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class ExperimentAssignmentRecord(Base):
@@ -546,6 +610,12 @@ class ChangeSetRecord(Base):
         default="pending_approval",
         index=True,
     )
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     expected_json: Mapped[str] = mapped_column(Text, nullable=False)
     proposed_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -559,6 +629,10 @@ class ChangeSetRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class RolloutRecord(Base):
@@ -582,6 +656,12 @@ class RolloutRecord(Base):
         default="applied",
         index=True,
     )
+    state_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     actor: Mapped[str] = mapped_column(String(120), nullable=False)
     before_json: Mapped[str] = mapped_column(Text, nullable=False)
     after_json: Mapped[str] = mapped_column(Text, nullable=False)
@@ -589,6 +669,10 @@ class RolloutRecord(Base):
         DateTime(timezone=True),
         default=utcnow,
     )
+
+    __mapper_args__ = {
+        "version_id_col": state_version,
+    }
 
 
 class RollbackRecord(Base):

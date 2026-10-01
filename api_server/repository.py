@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api_server.db import (
@@ -22,6 +23,10 @@ from api_server.db import (
 )
 from app.config import settings
 from api_server.audit_integrity import append_audit_event
+from api_server.state_machine import (
+    commit_state_change,
+    lock_row,
+)
 
 from api_server.schemas import (
     AnalyticsEventResponse,
@@ -161,13 +166,23 @@ def create_approval(
     job_id: str,
     required: bool,
 ) -> ApprovalResponse:
-    job = session.get(JobRecord, job_id)
+    job = lock_row(
+        session,
+        JobRecord,
+        JobRecord.id,
+        job_id,
+    )
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     if job.policy_allowed is not True:
         raise HTTPException(status_code=409, detail="policy approval required")
 
-    existing = session.get(ApprovalRecord, job_id)
+    existing = lock_row(
+        session,
+        ApprovalRecord,
+        ApprovalRecord.job_id,
+        job_id,
+    )
     if existing is not None:
         return _approval_response(existing)
 
@@ -217,7 +232,14 @@ def create_approval(
             actor="system",
             payload={"reason": "human_review_not_required"},
         )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.get(ApprovalRecord, job_id)
+        if existing is not None:
+            return _approval_response(existing)
+        raise
     session.refresh(approval)
     return _approval_response(approval)
 
@@ -237,7 +259,12 @@ def decide_approval(
     reviewer: str,
     reason: str | None,
 ) -> ApprovalResponse:
-    approval = session.get(ApprovalRecord, job_id)
+    approval = lock_row(
+        session,
+        ApprovalRecord,
+        ApprovalRecord.job_id,
+        job_id,
+    )
     if approval is None:
         raise HTTPException(status_code=404, detail="approval not found")
 
@@ -260,7 +287,7 @@ def decide_approval(
         actor=reviewer,
         payload={"reason": reason} if reason else {},
     )
-    session.commit()
+    commit_state_change(session)
     session.refresh(approval)
     return _approval_response(approval)
 
@@ -283,7 +310,12 @@ def publish_job(
     destination: str,
     publisher: str,
 ) -> PublicationResponse:
-    job = session.get(JobRecord, job_id)
+    job = lock_row(
+        session,
+        JobRecord,
+        JobRecord.id,
+        job_id,
+    )
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     if job.policy_allowed is not True:
@@ -293,7 +325,12 @@ def publish_job(
 
     assert_job_verifications_current(session, job)
 
-    approval = session.get(ApprovalRecord, job_id)
+    approval = lock_row(
+        session,
+        ApprovalRecord,
+        ApprovalRecord.job_id,
+        job_id,
+    )
     if approval is None or approval.status != "approved":
         raise HTTPException(status_code=409, detail="human approval required")
 
@@ -321,7 +358,18 @@ def publish_job(
             "destination": destination,
         },
     )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.scalar(
+            select(PublicationRecord).where(
+                PublicationRecord.job_id == job_id
+            )
+        )
+        if existing is not None:
+            return _publication_response(existing)
+        raise
     session.refresh(publication)
     return _publication_response(publication)
 

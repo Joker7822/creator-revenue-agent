@@ -513,3 +513,12 @@ GET /v1/audit/anchors/freshness
 Freshness requires the latest external anchor to pass rollback/integrity verification, be no older than `AUDIT_ANCHOR_MAX_AGE_SECONDS`, and be no more than `AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS` behind the local chain.
 
 When `ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true`, `POST /v1/change-sets/{change_set_id}/apply` returns HTTP 409 instead of modifying production state when the freshness gate fails.
+
+
+## Concurrent state-machine protection
+
+State-changing endpoints use row-level locking where supported and optimistic `state_version` checks on mutable records.
+
+A stale conflicting writer is rejected with HTTP 409 instead of silently overwriting a newer state. Exact idempotent create/apply/rollback retries converge on the already-created resource when its uniqueness constraint has already won a concurrent race.
+
+`GET /ready` includes the `database_concurrency` check. When `PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true`, SQLite does not satisfy production readiness.

@@ -85,3 +85,10 @@ Existing audit rows are deterministically linked under `legacy-sha256-v1`. Event
 ## External audit-anchor revision
 
 Revision `20261001_0006` adds `audit_anchor_receipts`. These rows retain external receipt metadata for operations and troubleshooting but are not the security source of truth; rollback verification queries the external WORM service.
+
+
+## State-machine concurrency revision
+
+Revision `20261001_0007` adds non-null `state_version` columns, initialized to 1, to approvals, products, optimization proposals, experiments, change sets, and rollouts.
+
+Application mutations use these columns for optimistic concurrency checks in addition to row-level locks on production databases.

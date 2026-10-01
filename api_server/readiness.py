@@ -8,6 +8,7 @@ from api_server.audit_integrity import (
     audit_hash_configuration_status,
     verify_audit_chain,
 )
+from api_server.db import production_database_locking_status
 from api_server.auth import get_signing_key_status
 from api_server.migration_runtime import (
     current_revision,
@@ -71,6 +72,13 @@ def production_readiness(
         _safe_check(
             "database_revision",
             database_check,
+        )
+    )
+
+    checks.append(
+        _safe_check(
+            "database_concurrency",
+            production_database_locking_status,
         )
     )
 

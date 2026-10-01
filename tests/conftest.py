@@ -19,6 +19,10 @@ os.environ.setdefault(
     "sqlite:///./test-agent.db",
 )
 os.environ.setdefault(
+    "PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE",
+    "false",
+)
+os.environ.setdefault(
     "ALLOW_LEGACY_ADMIN_TOKEN",
     "false",
 )

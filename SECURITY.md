@@ -169,3 +169,13 @@ High-risk workflow actions now use server-configured service identities and role
 - The rollout gate executes before changing product state.
 - A missing, stale, mismatched, or rollback-indicating external anchor blocks rollout with HTTP 409.
 - The readiness endpoint does not return secret values.
+
+
+## Database concurrency controls
+
+- Critical state transitions acquire database row locks with `SELECT ... FOR UPDATE` when the database supports them.
+- Mutable state-machine rows also carry an optimistic `state_version`; SQLAlchemy updates include the previously observed version and increment it atomically.
+- Stale writers are rolled back and rejected with HTTP 409.
+- Unique constraints remain the final idempotency guard for concurrent resource creation.
+- Production should use a row-locking transactional database such as PostgreSQL and keep `PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE=true`.
+- SQLite is retained for local development and CI only; its locking semantics are not treated as production-equivalent.

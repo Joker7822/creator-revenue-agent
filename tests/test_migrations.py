@@ -324,3 +324,111 @@ def test_audit_chain_backfills_from_0004(
     assert state["last_hash"] == rows[1]["event_hash"]
     assert state["hash_key_id"] == "legacy-sha256-v1"
     assert len(state["state_hash"]) == 64
+
+
+
+def test_state_versions_upgrade_from_0006(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url = (
+        f"sqlite:///{tmp_path / 'state-version-0006.db'}"
+    )
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    config = config_for(database_url)
+
+    command.upgrade(config, "20261001_0006")
+
+    engine = create_engine(database_url)
+    now = datetime.now(timezone.utc)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO approvals (
+                        job_id,
+                        status,
+                        required,
+                        created_at
+                    ) VALUES (
+                        'job_version_test',
+                        'pending_review',
+                        1,
+                        :created_at
+                    )
+                    """
+                ),
+                {"created_at": now},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO products (
+                        id,
+                        publication_id,
+                        name,
+                        currency,
+                        price_minor_units,
+                        active,
+                        created_at
+                    ) VALUES (
+                        'prod_version_test',
+                        'pub_version_test',
+                        'Version test',
+                        'JPY',
+                        1500,
+                        1,
+                        :created_at
+                    )
+                    """
+                ),
+                {"created_at": now},
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        for table_name in (
+            "approvals",
+            "products",
+            "optimization_proposals",
+            "experiments",
+            "change_sets",
+            "rollouts",
+        ):
+            columns = {
+                column["name"]: column
+                for column in inspector.get_columns(table_name)
+            }
+            assert "state_version" in columns
+            assert columns["state_version"]["nullable"] is False
+
+        with engine.connect() as connection:
+            approval_version = connection.execute(
+                text(
+                    """
+                    SELECT state_version
+                    FROM approvals
+                    WHERE job_id = 'job_version_test'
+                    """
+                )
+            ).scalar_one()
+            product_version = connection.execute(
+                text(
+                    """
+                    SELECT state_version
+                    FROM products
+                    WHERE id = 'prod_version_test'
+                    """
+                )
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+    assert approval_version == 1
+    assert product_version == 1
