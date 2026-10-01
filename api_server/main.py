@@ -2,7 +2,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from time import perf_counter
 
-from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.responses import JSONResponse
 
 from api_server.abuse_protection import (
@@ -194,6 +201,33 @@ async def observability_middleware(
 
     try:
         response = await call_next(request)
+    except HTTPException as exc:
+        duration_ms = (perf_counter() - started) * 1000
+        route = request_route_template(request.scope)
+        operational_metrics.record(
+            method=request.method,
+            route=route,
+            status_code=exc.status_code,
+            duration_ms=duration_ms,
+        )
+        log_request_completed(
+            method=request.method,
+            route=route,
+            status_code=exc.status_code,
+            duration_ms=duration_ms,
+        )
+        headers = dict(exc.headers or {})
+        headers["X-Request-ID"] = context.request_id
+        headers["X-Trace-ID"] = context.trace_id
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "detail": exc.detail,
+                "request_id": context.request_id,
+                "trace_id": context.trace_id,
+            },
+            headers=headers,
+        )
     except Exception as exc:
         duration_ms = (perf_counter() - started) * 1000
         route = request_route_template(request.scope)
