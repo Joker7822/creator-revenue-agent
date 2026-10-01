@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import JSONResponse
 
 from api_server.abuse_protection import (
-    request_body_limit_bytes,
+    RequestBodyLimitMiddleware,
     require_billing_rate_limit,
     require_credential_rate_limit,
     require_rollout_rate_limit,
@@ -175,6 +175,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Added before the function middleware so observability wraps
+# body-limit responses and records their 413 status.
+app.add_middleware(RequestBodyLimitMiddleware)
+
 
 @app.middleware("http")
 async def observability_middleware(
@@ -189,37 +193,7 @@ async def observability_middleware(
     started = perf_counter()
 
     try:
-        response = None
-        if request.method in {"POST", "PUT", "PATCH"}:
-            body_limit = request_body_limit_bytes()
-            content_length = request.headers.get("content-length")
-            if content_length is not None:
-                try:
-                    declared_length = int(content_length)
-                except ValueError:
-                    declared_length = -1
-                if declared_length > body_limit:
-                    response = JSONResponse(
-                        status_code=413,
-                        content={
-                            "detail": "request body too large",
-                            "error_code": "request_body_too_large",
-                        },
-                    )
-
-            if response is None:
-                body = await request.body()
-                if len(body) > body_limit:
-                    response = JSONResponse(
-                        status_code=413,
-                        content={
-                            "detail": "request body too large",
-                            "error_code": "request_body_too_large",
-                        },
-                    )
-
-        if response is None:
-            response = await call_next(request)
+        response = await call_next(request)
     except Exception as exc:
         duration_ms = (perf_counter() - started) * 1000
         route = request_route_template(request.scope)

@@ -94,6 +94,105 @@ class FixedWindowRateLimiter:
 rate_limiter = FixedWindowRateLimiter()
 
 
+class RequestBodyLimitMiddleware:
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope,
+        receive,
+        send,
+    ) -> None:
+        if (
+            scope.get("type") != "http"
+            or scope.get("method")
+            not in {"POST", "PUT", "PATCH"}
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        limit = request_body_limit_bytes()
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+        }
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                declared_length = int(
+                    raw_length.decode("ascii")
+                )
+            except (ValueError, UnicodeDecodeError):
+                declared_length = -1
+            if declared_length > limit:
+                await self._reject(scope, receive, send)
+                return
+
+        messages = []
+        total = 0
+        while True:
+            message = await receive()
+            messages.append(message)
+
+            if message["type"] == "http.disconnect":
+                await self.app(
+                    scope,
+                    self._replay(messages),
+                    send,
+                )
+                return
+
+            if message["type"] != "http.request":
+                continue
+
+            total += len(message.get("body", b""))
+            if total > limit:
+                await self._reject(scope, receive, send)
+                return
+
+            if not message.get("more_body", False):
+                break
+
+        await self.app(
+            scope,
+            self._replay(messages),
+            send,
+        )
+
+    @staticmethod
+    def _replay(messages):
+        index = 0
+
+        async def replay():
+            nonlocal index
+            if index < len(messages):
+                message = messages[index]
+                index += 1
+                return message
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        return replay
+
+    @staticmethod
+    async def _reject(scope, receive, send) -> None:
+        from fastapi.responses import JSONResponse
+
+        response = JSONResponse(
+            status_code=413,
+            content={
+                "detail": "request body too large",
+                "error_code": "request_body_too_large",
+            },
+            headers={"Connection": "close"},
+        )
+        await response(scope, receive, send)
+
+
 def _limit(name: str, default: int) -> int:
     raw = os.getenv(name, str(default))
     try:
