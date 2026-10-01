@@ -306,3 +306,31 @@ An `admin` role may perform any protected role operation.
 Identity-like fields sent in JSON are compatibility fields only for these protected endpoints. The server records the authenticated service subject in workflow records and audit events.
 
 A valid authenticated service without the required role receives HTTP 403.
+
+
+## Short-lived service credentials
+
+```text
+POST /v1/auth/credentials
+GET  /v1/auth/credentials/{credential_id}
+POST /v1/auth/credentials/{credential_id}/revoke
+GET  /v1/auth/signing-keys
+```
+
+Credential issue requires `credential_admin` (or `admin`).
+
+Issued JWT claims include:
+
+- `iss`
+- `aud`
+- `sub`
+- `roles`
+- `iat`
+- `exp`
+- `jti`
+
+JWT headers use `alg=HS256`, `typ=JWT`, and a configured `kid`.
+
+The server validates signature, issuer, audience, lifetime, allowed roles, key status, persisted issuance record, and revocation state.
+
+Revocation is immediate for credentials managed by the internal issuer. Signing-key rotation supports an overlap period where old and new `kid` values are both configured.

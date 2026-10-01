@@ -318,3 +318,30 @@ Configured roles:
 `reviewer`, `actor`, `owner`, `created_by`, and `publisher` fields remain accepted for backward-compatible request parsing, but protected endpoints ignore them for identity and use the authenticated principal.
 
 Production should set `SERVICE_IDENTITIES_JSON` from a secret store and leave `ALLOW_LEGACY_ADMIN_TOKEN=false`.
+
+
+## Short-lived signed service credentials
+
+The internal API now supports short-lived HS256 JWT service credentials with a `kid`, `jti`, subject, roles, issued-at time, and expiration.
+
+Credential administration endpoints:
+
+```text
+POST /v1/auth/credentials
+GET  /v1/auth/credentials/{credential_id}
+POST /v1/auth/credentials/{credential_id}/revoke
+GET  /v1/auth/signing-keys
+```
+
+A `credential_admin` service can issue operational credentials. Credential TTL is capped by `SERVICE_JWT_MAX_TTL_SECONDS` (900 seconds by default). Issued credential metadata is persisted, but the bearer token itself is not stored.
+
+Rotation uses multiple configured signing keys:
+
+1. add the new key while retaining the old key
+2. set `SERVICE_JWT_ACTIVE_KID` to the new key
+3. wait for old credentials to expire or revoke them
+4. remove the retired key
+
+During the overlap, credentials signed by either configured key remain valid. Removing a key immediately makes credentials signed by that key invalid.
+
+Production should run `SERVICE_AUTH_MODE=jwt`. `hybrid` exists only for bootstrap/migration from static service tokens.

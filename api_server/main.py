@@ -4,8 +4,12 @@ from fastapi import Depends, FastAPI
 
 from api_server.auth import (
     ServicePrincipal,
+    get_credential_status,
+    get_signing_key_status,
+    issue_service_credential,
     require_roles,
     require_service_token,
+    revoke_service_credential,
 )
 from api_server.db import SessionLocal, init_db
 from api_server.experiment_statistics import (
@@ -65,6 +69,10 @@ from api_server.schemas import (
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    CredentialIssueRequest,
+    CredentialResponse,
+    CredentialRevokeRequest,
+    CredentialStatusResponse,
     ChangeSetCreateRequest,
     ChangeSetDecisionRequest,
     ChangeSetResponse,
@@ -99,6 +107,7 @@ from api_server.schemas import (
     RolloutApplyRequest,
     RolloutMonitorResponse,
     RolloutResponse,
+    SigningKeyStatusResponse,
     TransactionCreateRequest,
     TransactionResponse,
 )
@@ -109,13 +118,84 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.13.0",
+    version="0.14.0",
 )
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post(
+    "/v1/auth/credentials",
+    response_model=CredentialResponse,
+)
+def credential_issue(
+    request: CredentialIssueRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("credential_admin")
+    ),
+) -> CredentialResponse:
+    with SessionLocal() as session:
+        return issue_service_credential(
+            session,
+            issuer_principal=principal,
+            subject=request.subject,
+            roles=request.roles,
+            ttl_seconds=request.ttl_seconds,
+        )
+
+
+@app.get(
+    "/v1/auth/credentials/{credential_id}",
+    response_model=CredentialStatusResponse,
+)
+def credential_status(
+    credential_id: str,
+    principal: ServicePrincipal = Depends(
+        require_roles("credential_admin")
+    ),
+) -> CredentialStatusResponse:
+    del principal
+    with SessionLocal() as session:
+        return get_credential_status(
+            session,
+            credential_id=credential_id,
+        )
+
+
+@app.post(
+    "/v1/auth/credentials/{credential_id}/revoke",
+    response_model=CredentialStatusResponse,
+)
+def credential_revoke(
+    credential_id: str,
+    request: CredentialRevokeRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("credential_admin")
+    ),
+) -> CredentialStatusResponse:
+    with SessionLocal() as session:
+        return revoke_service_credential(
+            session,
+            credential_id=credential_id,
+            revoked_by=principal.subject,
+            reason=request.reason,
+        )
+
+
+@app.get(
+    "/v1/auth/signing-keys",
+    response_model=SigningKeyStatusResponse,
+)
+def signing_key_status(
+    principal: ServicePrincipal = Depends(
+        require_roles("credential_admin")
+    ),
+) -> SigningKeyStatusResponse:
+    del principal
+    return get_signing_key_status()
 
 
 @app.post(

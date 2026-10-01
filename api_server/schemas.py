@@ -465,6 +465,48 @@ class RollbackResponse(BaseModel):
     rolled_back_at: datetime
 
 
+class CredentialIssueRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=120)
+    roles: list[str] = Field(min_length=1, max_length=20)
+    ttl_seconds: int = Field(default=900, ge=60, le=3600)
+
+
+class CredentialResponse(BaseModel):
+    credential_id: str
+    subject: str
+    roles: list[str]
+    key_id: str
+    token_type: Literal["Bearer"]
+    access_token: str
+    issued_at: datetime
+    expires_at: datetime
+
+
+class CredentialRevokeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class CredentialStatusResponse(BaseModel):
+    credential_id: str
+    subject: str
+    roles: list[str]
+    key_id: str
+    issued_by: str
+    issued_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    revoked_by: str | None
+    revoke_reason: str | None
+    active: bool
+
+
+class SigningKeyStatusResponse(BaseModel):
+    active_key_id: str
+    configured_key_ids: list[str]
+    auth_mode: str
+    max_ttl_seconds: int
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

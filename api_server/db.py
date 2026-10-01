@@ -498,6 +498,50 @@ class RollbackRecord(Base):
     )
 
 
+class IssuedCredentialRecord(Base):
+    __tablename__ = "issued_credentials"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    subject: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+    roles_json: Mapped[str] = mapped_column(Text, nullable=False)
+    key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+    issued_by: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    revoked_by: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+    revoke_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

@@ -74,3 +74,17 @@ High-risk workflow actions now use server-configured service identities and role
 - `ALLOW_LEGACY_ADMIN_TOKEN` defaults to false and should remain disabled in production.
 - `SERVICE_IDENTITIES_JSON` contains secrets and must come from a secret manager or deployment environment, never source control.
 - Static service tokens are an intermediate control. Production hardening should replace them with short-lived signed credentials, rotation, and revocation.
+
+
+## Short-lived credentials, rotation, and revocation
+
+- Production target authentication is `SERVICE_AUTH_MODE=jwt`.
+- Service JWTs are short-lived and capped at 15 minutes by default.
+- Each credential has a unique `jti` and a persisted issuance record.
+- Revoked credentials fail authentication immediately.
+- Signing keys are selected by `kid`; multiple keys may be configured during rotation.
+- The active key signs new credentials. Retiring keys remain verification-only until removed.
+- Removing a signing key invalidates any still-live credential signed by that key.
+- Signing-key secrets must come from a secret manager and must never be committed.
+- `hybrid` static/JWT mode is for migration or bootstrap only, not steady-state production.
+- Current HS256 keys are an intermediate deployment model; a future external identity provider or asymmetric signing service can replace local shared secrets without changing RBAC semantics.

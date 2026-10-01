@@ -304,6 +304,50 @@ class CustomAPIClient:
             json={"actor": actor, "reason": reason},
         )
 
+    def issue_service_credential(
+        self,
+        *,
+        subject: str,
+        roles: list[str],
+        ttl_seconds: int = 900,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/auth/credentials",
+            json={
+                "subject": subject,
+                "roles": roles,
+                "ttl_seconds": ttl_seconds,
+            },
+        )
+
+    def get_service_credential(
+        self,
+        credential_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/auth/credentials/{credential_id}",
+        )
+
+    def revoke_service_credential(
+        self,
+        credential_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/auth/credentials/{credential_id}/revoke",
+            json={"reason": reason},
+        )
+
+    def get_signing_key_status(self) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/auth/signing-keys",
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,
