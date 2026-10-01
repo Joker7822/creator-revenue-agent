@@ -373,6 +373,23 @@ class CustomAPIClient:
             json={"reason": reason},
         )
 
+    def get_prometheus_metrics(self) -> str:
+        url = f"{self.base_url}/v1/ops/metrics"
+        with httpx.Client(
+            timeout=self.timeout_seconds
+        ) as http_client:
+            response = http_client.get(
+                url,
+                headers=self.headers,
+            )
+        if response.status_code >= 400:
+            body = response.text[:500]
+            raise CustomAPIError(
+                "GET /v1/ops/metrics failed with HTTP "
+                f"{response.status_code}: {body}"
+            )
+        return response.text
+
     def get_operational_status(self) -> dict[str, Any]:
         return self._request(
             "GET",

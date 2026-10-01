@@ -114,6 +114,8 @@ jobs:
           CREDENTIAL_RATE_LIMIT_PER_MINUTE: "30"
           ROLLOUT_RATE_LIMIT_PER_MINUTE: "30"
           VERIFICATION_WEBHOOK_RATE_LIMIT_PER_MINUTE: "300"
+          METRICS_EXPORT_MODE: prometheus
+          EDGE_RATE_LIMIT_MODE: external
         run: python -m api_server.release_gate
 
       - name: Install PostgreSQL client tools

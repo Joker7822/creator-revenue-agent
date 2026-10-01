@@ -104,3 +104,15 @@ The remaining risks are primarily infrastructure/operations rather than missing 
 - operational metrics are process-local until exported to a durable monitoring backend
 
 These items should be validated in the target production environment before accepting real traffic.
+
+
+## External infrastructure contract
+
+The production release gate now requires:
+
+```text
+METRICS_EXPORT_MODE=prometheus
+EDGE_RATE_LIMIT_MODE=external
+```
+
+The repository provides an authenticated Prometheus scrape surface using the dedicated `metrics_reader` role. Distributed ingress limiting remains an external infrastructure responsibility and cannot be replaced by per-process counters.

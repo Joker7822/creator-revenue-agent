@@ -218,6 +218,14 @@ def test_production_configuration_accepts_secret_files(
         "AUDIT_ANCHOR_BASE_URL",
         "https://anchor.internal.example",
     )
+    monkeypatch.setenv(
+        "METRICS_EXPORT_MODE",
+        "prometheus",
+    )
+    monkeypatch.setenv(
+        "EDGE_RATE_LIMIT_MODE",
+        "external",
+    )
 
     checks = production_configuration_checks()
     failed = [check for check in checks if not check.ok]
@@ -277,3 +285,18 @@ def test_production_configuration_rejects_unbounded_abuse_limits(
     }
     assert checks["request_body_limit"].ok is False
     assert checks["billing_rate_limit"].ok is False
+
+
+
+def test_production_configuration_requires_external_edge_and_metrics(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("METRICS_EXPORT_MODE", "none")
+    monkeypatch.setenv("EDGE_RATE_LIMIT_MODE", "process")
+
+    checks = {
+        check.name: check
+        for check in production_configuration_checks()
+    }
+    assert checks["metrics_export_mode"].ok is False
+    assert checks["edge_rate_limit_mode"].ok is False

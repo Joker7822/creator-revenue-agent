@@ -38,6 +38,10 @@ def test_production_identity_and_revenue_flow(
         "prod-billing",
     )
     reader_token = issue("reader", "prod-reader")
+    metrics_token = issue(
+        "metrics_reader",
+        "prod-metrics",
+    )
 
     monkeypatch.setenv("SERVICE_AUTH_MODE", "jwt")
     monkeypatch.setenv(
@@ -205,3 +209,13 @@ def test_production_identity_and_revenue_flow(
     )
     assert integrity.status_code == 200
     assert integrity.json()["valid"] is True
+
+    metrics = client.get(
+        "/v1/ops/metrics",
+        headers=bearer(metrics_token),
+    )
+    assert metrics.status_code == 200
+    assert (
+        "creator_revenue_agent_requests_total"
+        in metrics.text
+    )

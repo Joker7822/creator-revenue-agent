@@ -207,6 +207,8 @@ Before accepting traffic:
 - [ ] distributed ingress/API-gateway rate limits are configured
 - [ ] request body limits are appropriate for expected payloads
 - [ ] structured logs and operational alerts are collected externally
+- [ ] Prometheus scraping is configured with a `metrics_reader` credential
+- [ ] distributed edge/API-gateway rate limiting is active
 - [ ] `/ready` returns HTTP 200
 
 
@@ -240,3 +242,25 @@ This is stricter than the configuration-only preflight because it also checks th
 In JWT-only steady-state production, do not leave `SERVICE_IDENTITIES_JSON`, `INTERNAL_API_TOKEN`, or `CUSTOM_API_TOKEN` configured. Bootstrap or migration credentials should be removed after short-lived JWT issuance is operational.
 
 The release gate also enforces bounded request-body and sensitive mutation rate-limit settings so accidental effectively-unlimited values cannot pass production preflight.
+
+
+## External metrics and edge protection
+
+The application exposes Prometheus-compatible process metrics at:
+
+```text
+GET /v1/ops/metrics
+```
+
+The endpoint requires a service credential with the dedicated `metrics_reader` role. Issue a short-lived credential through the normal credential lifecycle and configure the monitoring collector to renew it through an authorized integration rather than adding a static general-purpose API token.
+
+The metrics surface contains bounded route templates, counts, latency summaries, incident signals, and alert states. It does not include request bodies, bearer tokens, concrete resource IDs, creator references, or secret values.
+
+Production release gating requires:
+
+```text
+METRICS_EXPORT_MODE=prometheus
+EDGE_RATE_LIMIT_MODE=external
+```
+
+`EDGE_RATE_LIMIT_MODE=external` is an explicit deployment contract: the process-local rate limiter remains defense in depth, while the production ingress/API gateway must provide distributed rate limiting across replicas, connection controls, and DDoS protection.

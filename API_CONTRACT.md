@@ -579,3 +579,14 @@ Write requests are rejected with HTTP 413 when the actual body exceeds `MAX_REQU
 Sensitive endpoints use process-local fixed-window rate limits and return HTTP 429 with `Retry-After` when exceeded. Configurable buckets cover billing writes, credential mutation, rollout mutation, and verification-provider webhooks.
 
 Operational telemetry exposes `rate_limit_rejections` and `oversized_request_rejections` incident signals.
+
+
+## Prometheus metrics
+
+```text
+GET /v1/ops/metrics
+```
+
+Requires the `metrics_reader` role (or admin). Returns Prometheus text exposition format and includes process uptime, request counters, bounded error classes, incident signals, route-template request/error/latency series, alert thresholds, and alert-triggered gauges.
+
+Metric labels never use concrete resource identifiers.

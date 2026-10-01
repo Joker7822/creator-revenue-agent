@@ -161,3 +161,70 @@ def test_structured_request_log_contains_correlation_ids(
     assert payload["status_code"] == 200
     assert "authorization" not in payload
     assert "body" not in payload
+
+
+
+def _issue_metrics_reader() -> str:
+    response = client.post(
+        "/v1/auth/credentials",
+        headers={"Authorization": "Bearer credential-admin-token"},
+        json={
+            "subject": "metrics-scraper",
+            "roles": ["metrics_reader"],
+            "ttl_seconds": 120,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
+def test_prometheus_metrics_require_metrics_reader() -> None:
+    reader = client.get(
+        "/v1/ops/metrics",
+        headers=auth(),
+    )
+    assert reader.status_code == 200
+
+    denied = client.get(
+        "/v1/ops/metrics",
+        headers={"Authorization": "Bearer reader-token"},
+    )
+    assert denied.status_code == 403
+
+    token = _issue_metrics_reader()
+    response = client.get(
+        "/v1/ops/metrics",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "text/plain"
+    )
+    assert (
+        "creator_revenue_agent_requests_total"
+        in response.text
+    )
+
+
+def test_prometheus_metrics_use_route_templates() -> None:
+    token = _issue_metrics_reader()
+    client.get(
+        "/v1/rollouts/metric-alpha",
+        headers=auth(),
+    )
+    client.get(
+        "/v1/rollouts/metric-beta",
+        headers=auth(),
+    )
+
+    response = client.get(
+        "/v1/ops/metrics",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert (
+        'route="/v1/rollouts/{rollout_id}"'
+        in response.text
+    )
+    assert "metric-alpha" not in response.text
+    assert "metric-beta" not in response.text

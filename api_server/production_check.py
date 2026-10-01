@@ -339,6 +339,34 @@ def production_configuration_checks() -> list[Check]:
         )
         checks.append(_check(check_name, ok, detail))
 
+    metrics_export_mode = os.getenv(
+        "METRICS_EXPORT_MODE",
+        "",
+    ).strip().lower()
+    checks.append(
+        _check(
+            "metrics_export_mode",
+            metrics_export_mode == "prometheus",
+            (
+                "METRICS_EXPORT_MODE must be prometheus"
+            ),
+        )
+    )
+
+    edge_rate_limit_mode = os.getenv(
+        "EDGE_RATE_LIMIT_MODE",
+        "",
+    ).strip().lower()
+    checks.append(
+        _check(
+            "edge_rate_limit_mode",
+            edge_rate_limit_mode == "external",
+            (
+                "EDGE_RATE_LIMIT_MODE must be external"
+            ),
+        )
+    )
+
     anchor_url = os.getenv(
         "AUDIT_ANCHOR_BASE_URL",
         "",

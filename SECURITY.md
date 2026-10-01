@@ -237,3 +237,10 @@ High-risk workflow actions now use server-configured service identities and role
 - Authentication failures and generic errors are tested not to reflect bearer tokens or request payload content.
 - Production-path E2E uses issued short-lived JWTs for verification writer, reviewer, publisher, billing writer, and reader identities rather than relying on one test-admin credential.
 - The final CLI release gate also requires the database Alembic revision to equal head.
+
+
+## External monitoring and edge controls
+
+- Prometheus metrics require the dedicated `metrics_reader` role.
+- Metric labels are bounded route templates and operational classes; concrete object IDs and sensitive request data are excluded.
+- Production release gating requires an external distributed edge-rate-limit mode in addition to process-local defense-in-depth limits.

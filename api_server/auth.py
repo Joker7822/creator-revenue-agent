@@ -32,6 +32,7 @@ ALLOWED_ROLES = frozenset({
     "rollout_operator",
     "incident_manager",
     "reader",
+    "metrics_reader",
 })
 
 

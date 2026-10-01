@@ -657,3 +657,14 @@ A release is rejected when production safety invariants are not satisfied, inclu
 CI executes this gate against the migrated PostgreSQL service before considering the production path green.
 
 A production-identity E2E test also issues short-lived role-specific JWTs and verifies the trusted verification → policy → human review → publish → billing/refund → audit-integrity path.
+
+
+## External monitoring integration
+
+Prometheus-compatible metrics are exposed through the dedicated `metrics_reader` RBAC surface:
+
+```text
+GET /v1/ops/metrics
+```
+
+Production release gating also requires `EDGE_RATE_LIMIT_MODE=external`, so the process-local limiter cannot be treated as the only protection across replicas.

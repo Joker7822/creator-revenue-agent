@@ -10,7 +10,7 @@ from fastapi import (
     Request,
     Response,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from api_server.abuse_protection import (
     RequestBodyLimitMiddleware,
@@ -58,6 +58,7 @@ from api_server.observability import (
     log_unhandled_exception,
     operational_metrics,
     operational_status_snapshot,
+    prometheus_metrics,
     request_route_template,
     reset_request_context,
     resolve_request_context,
@@ -178,7 +179,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.25.0",
+    version="0.26.0",
     lifespan=lifespan,
 )
 
@@ -281,6 +282,22 @@ async def observability_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get(
+    "/v1/ops/metrics",
+    response_class=PlainTextResponse,
+)
+def operational_metrics_export(
+    principal: ServicePrincipal = Depends(
+        require_roles("metrics_reader")
+    ),
+) -> PlainTextResponse:
+    del principal
+    return PlainTextResponse(
+        prometheus_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @app.get(

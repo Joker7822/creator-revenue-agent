@@ -467,3 +467,107 @@ def operational_status_snapshot() -> dict[str, Any]:
         for row in alerts
     )
     return snapshot
+
+
+
+def _prometheus_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace('"', '\\"')
+    )
+
+
+def prometheus_metrics() -> str:
+    snapshot = operational_status_snapshot()
+    lines = [
+        "# HELP creator_revenue_agent_uptime_seconds Process uptime in seconds.",
+        "# TYPE creator_revenue_agent_uptime_seconds gauge",
+        (
+            "creator_revenue_agent_uptime_seconds "
+            f"{snapshot['uptime_seconds']}"
+        ),
+        "# HELP creator_revenue_agent_requests_total Total HTTP requests.",
+        "# TYPE creator_revenue_agent_requests_total counter",
+        (
+            "creator_revenue_agent_requests_total "
+            f"{snapshot['requests_total']}"
+        ),
+        "# HELP creator_revenue_agent_healthy Operational health signal.",
+        "# TYPE creator_revenue_agent_healthy gauge",
+        (
+            "creator_revenue_agent_healthy "
+            f"{1 if snapshot['healthy'] else 0}"
+        ),
+    ]
+
+    for status_class, count in sorted(
+        snapshot["status_classes"].items()
+    ):
+        label = _prometheus_escape(status_class)
+        lines.append(
+            "creator_revenue_agent_status_class_total"
+            f'{{status_class="{label}"}} {count}'
+        )
+
+    for error_class, count in sorted(
+        snapshot["errors_by_class"].items()
+    ):
+        label = _prometheus_escape(error_class)
+        lines.append(
+            "creator_revenue_agent_error_class_total"
+            f'{{error_class="{label}"}} {count}'
+        )
+
+    for signal, count in sorted(
+        snapshot["incident_signals"].items()
+    ):
+        label = _prometheus_escape(signal)
+        lines.append(
+            "creator_revenue_agent_incident_signal_total"
+            f'{{signal="{label}"}} {count}'
+        )
+
+    for row in snapshot["routes"]:
+        method, _, route = row["route"].partition(" ")
+        method_label = _prometheus_escape(method)
+        route_label = _prometheus_escape(route)
+        labels = (
+            f'method="{method_label}",route="{route_label}"'
+        )
+        lines.append(
+            "creator_revenue_agent_http_requests_total"
+            f"{{{labels}}} {row['requests']}"
+        )
+        lines.append(
+            "creator_revenue_agent_http_errors_total"
+            f"{{{labels}}} {row['errors']}"
+        )
+        duration_sum = (
+            row["average_duration_ms"] * row["requests"]
+        )
+        lines.append(
+            "creator_revenue_agent_http_request_duration_ms_sum"
+            f"{{{labels}}} {duration_sum:.3f}"
+        )
+        lines.append(
+            "creator_revenue_agent_http_request_duration_ms_max"
+            f"{{{labels}}} {row['max_duration_ms']}"
+        )
+
+    for alert in snapshot["alerts"]:
+        signal = _prometheus_escape(alert["signal"])
+        severity = _prometheus_escape(alert["severity"])
+        labels = (
+            f'signal="{signal}",severity="{severity}"'
+        )
+        lines.append(
+            "creator_revenue_agent_alert_triggered"
+            f"{{{labels}}} {1 if alert['triggered'] else 0}"
+        )
+        lines.append(
+            "creator_revenue_agent_alert_threshold"
+            f"{{{labels}}} {alert['threshold']}"
+        )
+
+    return "\n".join(lines) + "\n"

@@ -93,3 +93,18 @@ Thresholds apply to counters accumulated since the current process started. They
 
 
 Abuse-protection rejections are observable without logging request bodies or credentials. HTTP 429 increments `rate_limit_rejections`; HTTP 413 increments `oversized_request_rejections`.
+
+
+## Prometheus export
+
+A Prometheus-compatible scrape surface is available at:
+
+```text
+GET /v1/ops/metrics
+```
+
+It requires the dedicated `metrics_reader` service role. The intended production pattern is a narrowly scoped, short-lived service JWT managed by the monitoring integration.
+
+Exported series use bounded labels only: HTTP method, FastAPI route template, status/error class, incident signal, and severity. Concrete resource IDs, creator references, request bodies, authorization material, and secrets are not exposed.
+
+Production release gating requires `METRICS_EXPORT_MODE=prometheus`.
