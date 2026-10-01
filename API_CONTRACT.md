@@ -379,3 +379,31 @@ A verification is usable only while its status is active, it is not revoked, it 
 When trusted verification is required, policy and publication derive verification state from these server-managed records. Request booleans cannot upgrade the record state.
 
 Revocation marks referencing jobs' persisted policy result as not allowed. Publish performs an additional current-state verification check, so an approval obtained before consent revocation cannot be used to publish afterward.
+
+
+## Verification Provider webhook
+
+```text
+POST /v1/webhooks/verifications
+```
+
+This endpoint uses webhook HMAC authentication rather than the internal Bearer credential.
+
+Headers:
+
+- `X-Verification-Provider`
+- `X-Verification-Event-Id`
+- `X-Verification-Timestamp` — Unix seconds
+- `X-Verification-Signature` — `v1=<HMAC-SHA256 hex>`
+
+Canonical signed bytes:
+
+```text
+<provider>.<timestamp>.<event_id>.<raw request body>
+```
+
+Replay protection rejects timestamps outside `VERIFICATION_WEBHOOK_MAX_AGE_SECONDS` (300 seconds by default).
+
+Idempotency is scoped by provider and event ID. An identical replay returns the persisted original result. The same event ID with a different body hash returns HTTP 409.
+
+Payload event types are `verification.verified` and `verification.revoked`. Provider record references, subject references, and verification kinds must match before an existing record can be revoked.

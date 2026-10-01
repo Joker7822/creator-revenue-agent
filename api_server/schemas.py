@@ -88,6 +88,34 @@ class VerificationResponse(BaseModel):
     revoke_reason: str | None
 
 
+class VerificationWebhookPayload(BaseModel):
+    event_type: Literal[
+        "verification.verified",
+        "verification.revoked",
+    ]
+    provider_record_ref: str = Field(
+        min_length=1,
+        max_length=200,
+    )
+    subject_ref: str = Field(min_length=1, max_length=128)
+    kind: Literal[
+        "age",
+        "creator_consent",
+        "real_person_consent",
+    ]
+    age_years: int | None = Field(default=None, ge=0, le=130)
+    expires_at: datetime | None = None
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class VerificationWebhookResponse(BaseModel):
+    provider: str
+    event_id: str
+    event_type: str
+    duplicate: bool
+    verification: VerificationResponse
+
+
 class ApprovalCreateRequest(BaseModel):
     job_id: str = Field(min_length=1, max_length=128)
     required: bool = True

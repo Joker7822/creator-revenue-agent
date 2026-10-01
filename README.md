@@ -399,3 +399,40 @@ Caller-provided `age_verified`, `consent_verified`, and `creator_age` values are
 Revoking a verification record invalidates the stored policy state of referencing jobs. Publication also rechecks the current record state immediately before publishing.
 
 The registry stores provider/source metadata and opaque external record references only. Raw identity documents and consent evidence remain outside this repository and database.
+
+
+## Signed Verification Provider Webhooks
+
+External verification providers can submit trusted state through:
+
+```text
+POST /v1/webhooks/verifications
+```
+
+Required headers:
+
+```text
+X-Verification-Provider
+X-Verification-Event-Id
+X-Verification-Timestamp
+X-Verification-Signature
+```
+
+The signature is HMAC-SHA256 over the exact raw request body:
+
+```text
+provider + "." + unix_timestamp + "." + event_id + "." + raw_body
+```
+
+The signature header format is `v1=<hex digest>`.
+
+Webhook processing verifies the provider-specific secret, enforces a bounded timestamp window, limits request body size, and persists a unique `(provider, event_id)` ledger entry.
+
+An exact retry returns the original result with `duplicate=true`. Reusing an event ID with a different payload returns HTTP 409.
+
+Supported events:
+
+- `verification.verified`
+- `verification.revoked`
+
+The verification mutation and webhook event ledger are committed in one transaction, including concurrent duplicate handling.

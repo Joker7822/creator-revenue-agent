@@ -100,7 +100,7 @@ def _require_record(
     return record
 
 
-def create_verification(
+def create_verification_record(
     session: Session,
     *,
     subject_ref: str,
@@ -110,7 +110,7 @@ def create_verification(
     age_years: int | None,
     expires_at: datetime | None,
     created_by: str,
-) -> VerificationResponse:
+) -> VerificationRecord:
     if kind not in VALID_KINDS:
         raise HTTPException(
             status_code=400,
@@ -160,6 +160,32 @@ def create_verification(
             "source": source,
         },
     )
+    session.flush()
+    session.refresh(record)
+    return record
+
+
+def create_verification(
+    session: Session,
+    *,
+    subject_ref: str,
+    kind: str,
+    source: str,
+    source_record_ref: str | None,
+    age_years: int | None,
+    expires_at: datetime | None,
+    created_by: str,
+) -> VerificationResponse:
+    record = create_verification_record(
+        session,
+        subject_ref=subject_ref,
+        kind=kind,
+        source=source,
+        source_record_ref=source_record_ref,
+        age_years=age_years,
+        expires_at=expires_at,
+        created_by=created_by,
+    )
     session.commit()
     session.refresh(record)
     return _response(record)
@@ -178,19 +204,13 @@ def get_verification(
     return _response(record)
 
 
-def revoke_verification(
+def revoke_verification_record(
     session: Session,
     *,
-    verification_id: str,
+    record: VerificationRecord,
     actor: str,
     reason: str,
-) -> VerificationResponse:
-    record = session.get(VerificationRecord, verification_id)
-    if record is None:
-        raise HTTPException(
-            status_code=404,
-            detail="verification record not found",
-        )
+) -> VerificationRecord:
     if record.revoked_at is None:
         record.status = "revoked"
         record.revoked_at = utcnow()
@@ -200,10 +220,10 @@ def revoke_verification(
         jobs = session.scalars(
             select(JobRecord).where(
                 or_(
-                    JobRecord.age_verification_id == verification_id,
-                    JobRecord.consent_verification_id == verification_id,
+                    JobRecord.age_verification_id == record.id,
+                    JobRecord.consent_verification_id == record.id,
                     JobRecord.real_person_consent_verification_id
-                    == verification_id,
+                    == record.id,
                 )
             )
         ).all()
@@ -218,7 +238,7 @@ def revoke_verification(
                 event_type="verification_invalidated_job",
                 actor=actor,
                 payload={
-                    "verification_id": verification_id,
+                    "verification_id": record.id,
                     "reason": reason,
                 },
             )
@@ -229,12 +249,35 @@ def revoke_verification(
             event_type="verification_revoked",
             actor=actor,
             payload={
-                "verification_id": verification_id,
+                "verification_id": record.id,
                 "reason": reason,
             },
         )
-        session.commit()
-        session.refresh(record)
+        session.flush()
+    return record
+
+
+def revoke_verification(
+    session: Session,
+    *,
+    verification_id: str,
+    actor: str,
+    reason: str,
+) -> VerificationResponse:
+    record = session.get(VerificationRecord, verification_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail="verification record not found",
+        )
+    record = revoke_verification_record(
+        session,
+        record=record,
+        actor=actor,
+        reason=reason,
+    )
+    session.commit()
+    session.refresh(record)
     return _response(record)
 
 

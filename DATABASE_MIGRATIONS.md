@@ -63,3 +63,8 @@ Revision `20261001_0002` adds:
 - `jobs.real_person_consent_verification_id`
 
 The new job columns are nullable so legacy rows remain readable. Production policy should enable `REQUIRE_TRUSTED_VERIFICATION=true` for newly created jobs.
+
+
+## Verification webhook ledger revision
+
+Revision `20261001_0003` adds `verification_webhook_events`, including a unique provider/event-ID constraint, body SHA-256, linked verification record, persisted response snapshot, and receive timestamp.

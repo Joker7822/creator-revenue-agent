@@ -60,6 +60,24 @@ os.environ.setdefault(
     "false",
 )
 os.environ.setdefault(
+    "VERIFICATION_WEBHOOK_SECRETS_JSON",
+    json.dumps(
+        {
+            "provider-a": (
+                "provider-secret-0000000000000000000001"
+            )
+        }
+    ),
+)
+os.environ.setdefault(
+    "VERIFICATION_WEBHOOK_MAX_AGE_SECONDS",
+    "300",
+)
+os.environ.setdefault(
+    "VERIFICATION_WEBHOOK_MAX_BODY_BYTES",
+    "65536",
+)
+os.environ.setdefault(
     "SERVICE_IDENTITIES_JSON",
     json.dumps(
         {

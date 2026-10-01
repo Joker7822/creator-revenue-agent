@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Header, Request
 
 from api_server.auth import (
     ServicePrincipal,
@@ -115,6 +115,7 @@ from api_server.schemas import (
     VerificationCreateRequest,
     VerificationResponse,
     VerificationRevokeRequest,
+    VerificationWebhookResponse,
 )
 from api_server.services import evaluate_policy, generate_campaign_metadata
 from api_server.verification import (
@@ -122,6 +123,9 @@ from api_server.verification import (
     get_verification,
     resolve_content_request,
     revoke_verification,
+)
+from api_server.verification_webhooks import (
+    process_verification_webhook,
 )
 
 
@@ -133,7 +137,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.16.0",
+    version="0.17.0",
     lifespan=lifespan,
 )
 
@@ -212,6 +216,41 @@ def signing_key_status(
 ) -> SigningKeyStatusResponse:
     del principal
     return get_signing_key_status()
+
+
+@app.post(
+    "/v1/webhooks/verifications",
+    response_model=VerificationWebhookResponse,
+)
+async def verification_provider_webhook(
+    request: Request,
+    provider: str = Header(
+        ...,
+        alias="X-Verification-Provider",
+    ),
+    event_id: str = Header(
+        ...,
+        alias="X-Verification-Event-Id",
+    ),
+    timestamp_value: str = Header(
+        ...,
+        alias="X-Verification-Timestamp",
+    ),
+    signature: str = Header(
+        ...,
+        alias="X-Verification-Signature",
+    ),
+) -> VerificationWebhookResponse:
+    body = await request.body()
+    with SessionLocal() as session:
+        return process_verification_webhook(
+            session,
+            provider=provider,
+            event_id=event_id,
+            timestamp_value=timestamp_value,
+            signature=signature,
+            body=body,
+        )
 
 
 @app.post(

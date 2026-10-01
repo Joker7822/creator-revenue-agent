@@ -109,3 +109,16 @@ High-risk workflow actions now use server-configured service identities and role
 - Revocation invalidates the policy state of referencing jobs.
 - Publication rechecks verification state after policy and human approval, preventing stale consent from being used.
 - Do not store raw identity documents, biometric data, or consent media in this database. Store only opaque provider references and minimal verification metadata.
+
+
+## Verification webhook security
+
+- Provider webhooks use per-provider HMAC-SHA256 secrets.
+- The provider name, timestamp, event ID, and exact raw body are covered by the signature.
+- Timestamps outside the configured replay window are rejected before processing.
+- A unique provider/event-ID ledger prevents successful events from being applied twice.
+- Reusing an event ID with different payload bytes is treated as an idempotency conflict.
+- Verification mutation and webhook ledger persistence share one transaction.
+- Concurrent duplicate delivery is resolved against the winning ledger record.
+- Webhook bodies are size-limited before JSON parsing.
+- Provider secrets belong in a secret manager; never commit real values.

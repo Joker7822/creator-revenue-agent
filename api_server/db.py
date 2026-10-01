@@ -154,6 +154,49 @@ class VerificationRecord(Base):
     revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class VerificationWebhookEventRecord(Base):
+    __tablename__ = "verification_webhook_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "event_id",
+            name="uq_verification_webhook_provider_event",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    provider: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+    event_id: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        index=True,
+    )
+    body_sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    verification_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("verification_records.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+
+
 class ApprovalRecord(Base):
     __tablename__ = "approvals"
 
