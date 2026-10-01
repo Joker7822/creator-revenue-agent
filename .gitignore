@@ -24,3 +24,8 @@ secrets/
 deploy/secrets/
 *.dump
 *.dump.sha256
+
+
+# Generated supply-chain evidence
+sbom.cdx.json
+sbom.cdx.json.sha256

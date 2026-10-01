@@ -295,3 +295,17 @@ It includes:
 The Alembic migration Job is deliberately separate from the Deployment render. Run it once per release before rolling out application Pods.
 
 See `deploy/kubernetes/README.md` for the migration sequence, secret contract, namespace access label, immutable image pinning, and provider-specific egress tightening guidance.
+
+
+## Supply-chain release evidence
+
+Before promoting an image, require the CI `supply-chain` job to pass.
+
+The job provides:
+
+- Python dependency vulnerability audit
+- complete Git-history secret scan
+- production-image vulnerability scan
+- CycloneDX SBOM and SHA-256 checksum artifact
+
+Promote the exact image content that passed these checks. In the target registry, prefer immutable digest promotion plus registry/platform signing and admission verification rather than rebuilding the image separately after CI.

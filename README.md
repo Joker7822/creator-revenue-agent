@@ -673,3 +673,12 @@ Production release gating also requires `EDGE_RATE_LIMIT_MODE=external`, so the 
 ## Kubernetes production baseline
 
 The repository now includes a hardened provider-neutral Kubernetes/Kustomize baseline under `deploy/kubernetes/`, including a separate Alembic migration Job and CI schema/hardening validation.
+
+
+## Software supply-chain security
+
+CI now blocks releases on Python dependency vulnerabilities, full-history secret leaks, and fixable CRITICAL production-image vulnerabilities. It also generates and validates a CycloneDX image SBOM.
+
+Dependabot monitors Python, GitHub Actions, and Docker dependencies weekly.
+
+See `SUPPLY_CHAIN.md`.

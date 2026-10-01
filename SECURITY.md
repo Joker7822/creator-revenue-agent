@@ -256,3 +256,15 @@ High-risk workflow actions now use server-configured service identities and role
 - NetworkPolicy limits ingress to same-namespace or explicitly labeled namespaces and restricts egress to DNS, HTTPS, and PostgreSQL ports.
 - Production operators should further restrict generic 443/5432 egress to provider-specific CIDRs or an FQDN/L7-aware CNI policy.
 - CI validates native Kubernetes schemas and hardening invariants on every change.
+
+
+## Software supply-chain controls
+
+- Python dependencies are audited with a pinned `pip-audit` release.
+- The complete Git history is scanned for secrets with pinned Gitleaks.
+- The production container image is scanned with pinned Trivy.
+- Fixable CRITICAL image vulnerabilities block CI; HIGH/CRITICAL findings are also reported for review.
+- CI generates a CycloneDX SBOM from the built production image and validates its structure.
+- SBOM artifacts include a SHA-256 checksum and are retained as CI artifacts.
+- Dependabot monitors Python, GitHub Actions, and Docker base-image updates.
+- Secret-scan allowlisting is limited to explicit example/placeholder fixtures and must not be expanded to hide real credentials.

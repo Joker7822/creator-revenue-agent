@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret example and test fixtures"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)deploy/kubernetes/secret\.example\.yaml$''',
+]
+regexTarget = "match"
+regexes = [
+  '''replace-with-[A-Za-z0-9._-]+''',
+  '''replace-[A-Za-z0-9._-]+''',
+]
