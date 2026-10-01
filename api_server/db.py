@@ -194,6 +194,42 @@ class AnalyticsEventRecord(Base):
     )
 
 
+class OptimizationProposalRecord(Base):
+    __tablename__ = "optimization_proposals"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    publication_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("publications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    window: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="pending_review",
+        index=True,
+    )
+    metrics_json: Mapped[str] = mapped_column(Text)
+    recommendations_json: Mapped[str] = mapped_column(Text)
+    reviewer: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

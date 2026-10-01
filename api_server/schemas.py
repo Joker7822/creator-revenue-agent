@@ -182,6 +182,30 @@ class MetricsResponse(BaseModel):
     currencies: list[MetricsCurrencySummary]
 
 
+class OptimizationProposalCreateRequest(BaseModel):
+    publication_id: str = Field(min_length=1, max_length=128)
+    window: str = Field(default="7d", min_length=2, max_length=16)
+
+
+class OptimizationDecisionRequest(BaseModel):
+    reviewer: str = Field(min_length=1, max_length=120)
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class OptimizationProposalResponse(BaseModel):
+    proposal_id: str
+    publication_id: str
+    product_id: str
+    window: str
+    status: str
+    metrics: dict[str, Any]
+    recommendations: list[dict[str, Any]]
+    reviewer: str | None
+    reason: str | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

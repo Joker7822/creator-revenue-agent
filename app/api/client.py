@@ -137,3 +137,31 @@ class CustomAPIClient:
         if publication_id:
             params["publication_id"] = publication_id
         return self._request("GET", "/v1/metrics", params=params)
+
+    def create_optimization_proposal(
+        self,
+        *,
+        publication_id: str,
+        window: str = "7d",
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/optimizer/proposals",
+            json={
+                "publication_id": publication_id,
+                "window": window,
+            },
+        )
+
+    def approve_optimization_proposal(
+        self,
+        proposal_id: str,
+        *,
+        reviewer: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/optimizer/proposals/{proposal_id}/approve",
+            json={"reviewer": reviewer, "reason": reason},
+        )

@@ -4,6 +4,11 @@ from fastapi import Depends, FastAPI
 
 from api_server.auth import require_service_token
 from api_server.db import SessionLocal, init_db
+from api_server.optimizer import (
+    create_optimization_proposal,
+    decide_optimization_proposal,
+    get_optimization_proposal,
+)
 from api_server.repository import (
     create_approval,
     create_job,
@@ -30,6 +35,9 @@ from api_server.schemas import (
     ContentGenerateRequest,
     ContentGenerateResponse,
     MetricsResponse,
+    OptimizationDecisionRequest,
+    OptimizationProposalCreateRequest,
+    OptimizationProposalResponse,
     PolicyEvaluateRequest,
     PolicyEvaluateResponse,
     ProductCreateRequest,
@@ -47,7 +55,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.6.0",
+    version="0.7.0",
 )
 
 
@@ -268,6 +276,72 @@ def metrics_get(
             session,
             window=window,
             publication_id=publication_id,
+        )
+
+
+@app.post(
+    "/v1/optimizer/proposals",
+    response_model=OptimizationProposalResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def optimizer_proposal_create(
+    request: OptimizationProposalCreateRequest,
+) -> OptimizationProposalResponse:
+    with SessionLocal() as session:
+        return create_optimization_proposal(
+            session,
+            publication_id=request.publication_id,
+            window=request.window,
+        )
+
+
+@app.get(
+    "/v1/optimizer/proposals/{proposal_id}",
+    response_model=OptimizationProposalResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def optimizer_proposal_get(
+    proposal_id: str,
+) -> OptimizationProposalResponse:
+    with SessionLocal() as session:
+        return get_optimization_proposal(session, proposal_id)
+
+
+@app.post(
+    "/v1/optimizer/proposals/{proposal_id}/approve",
+    response_model=OptimizationProposalResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def optimizer_proposal_approve(
+    proposal_id: str,
+    request: OptimizationDecisionRequest,
+) -> OptimizationProposalResponse:
+    with SessionLocal() as session:
+        return decide_optimization_proposal(
+            session,
+            proposal_id=proposal_id,
+            decision="approved",
+            reviewer=request.reviewer,
+            reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/optimizer/proposals/{proposal_id}/reject",
+    response_model=OptimizationProposalResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def optimizer_proposal_reject(
+    proposal_id: str,
+    request: OptimizationDecisionRequest,
+) -> OptimizationProposalResponse:
+    with SessionLocal() as session:
+        return decide_optimization_proposal(
+            session,
+            proposal_id=proposal_id,
+            decision="rejected",
+            reviewer=request.reviewer,
+            reason=request.reason,
         )
 
 
