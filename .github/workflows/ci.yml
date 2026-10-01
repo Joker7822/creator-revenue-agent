@@ -87,6 +87,35 @@ jobs:
           PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE: "true"
         run: pytest -q tests/test_postgres_concurrency.py
 
+      - name: Production release gate
+        env:
+          PYTHONPATH: .
+          APP_ENV: production
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent
+          PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE: "true"
+          REQUIRE_HUMAN_REVIEW: "true"
+          ALLOW_AUTO_PUBLISH: "false"
+          ALLOW_LEGACY_ADMIN_TOKEN: "false"
+          SERVICE_AUTH_MODE: jwt
+          SERVICE_JWT_KEYS_JSON: '{"ci-current":"ci-jwt-secret-00000000000000000000000001"}'
+          SERVICE_JWT_ACTIVE_KID: ci-current
+          SERVICE_JWT_REQUIRE_ISSUED_RECORD: "true"
+          REQUIRE_TRUSTED_VERIFICATION: "true"
+          VERIFICATION_WEBHOOK_KEYS_JSON: '{"provider-a":{"ci-current":"ci-provider-secret-000000000000000000001"}}'
+          VERIFICATION_WEBHOOK_REQUIRE_KEY_ID: "true"
+          AUDIT_HASH_KEYS_JSON: '{"ci-audit":"ci-audit-secret-0000000000000000000000001"}'
+          AUDIT_HASH_ACTIVE_KID: ci-audit
+          AUDIT_ANCHOR_BASE_URL: https://audit-anchor.example.internal
+          AUDIT_ANCHOR_TOKEN: ci-anchor-token
+          AUDIT_ANCHOR_RECEIPT_KEYS_JSON: '{"ci-receipt":"ci-receipt-secret-00000000000000000000001"}'
+          ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT: "true"
+          MAX_REQUEST_BODY_BYTES: "1048576"
+          BILLING_RATE_LIMIT_PER_MINUTE: "120"
+          CREDENTIAL_RATE_LIMIT_PER_MINUTE: "30"
+          ROLLOUT_RATE_LIMIT_PER_MINUTE: "30"
+          VERIFICATION_WEBHOOK_RATE_LIMIT_PER_MINUTE: "300"
+        run: python -m api_server.release_gate
+
       - name: Install PostgreSQL client tools
         run: |
           sudo apt-get update

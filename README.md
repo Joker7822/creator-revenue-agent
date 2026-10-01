@@ -642,3 +642,18 @@ New sales are accepted only when the transaction amount exactly matches the prod
 Refund creation locks the original sale/product state on row-locking databases, preventing concurrent partial refunds from exceeding the sale total.
 
 The API also applies bounded request bodies and process-local fixed-window limits to billing writes, credential mutation, rollout mutation, and verification webhooks. Production should additionally enforce distributed limits at the ingress/API-gateway layer.
+
+
+## Final production release gate
+
+The release gate combines production configuration checks with the live Alembic revision check:
+
+```bash
+python -m api_server.release_gate
+```
+
+A release is rejected when production safety invariants are not satisfied, including JWT-only authentication, absence of static/legacy bearer credentials, trusted verification, mandatory human review, bounded abuse controls, PostgreSQL, current migrations, audit key configuration, and HTTPS external anchoring.
+
+CI executes this gate against the migrated PostgreSQL service before considering the production path green.
+
+A production-identity E2E test also issues short-lived role-specific JWTs and verifies the trusted verification → policy → human review → publish → billing/refund → audit-integrity path.

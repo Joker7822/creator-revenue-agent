@@ -90,6 +90,12 @@ def test_production_configuration_accepts_secret_files(
     tmp_path,
 ) -> None:
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("SERVICE_IDENTITIES_JSON", raising=False)
+    monkeypatch.delenv("SERVICE_IDENTITIES_JSON_FILE", raising=False)
+    monkeypatch.delenv("INTERNAL_API_TOKEN", raising=False)
+    monkeypatch.delenv("INTERNAL_API_TOKEN_FILE", raising=False)
+    monkeypatch.delenv("CUSTOM_API_TOKEN", raising=False)
+    monkeypatch.delenv("CUSTOM_API_TOKEN_FILE", raising=False)
 
     for name in (
         "DATABASE_URL",
@@ -236,3 +242,38 @@ def test_production_configuration_rejects_insecure_basics(
     assert checks["app_env"].ok is False
     assert checks["database_url"].ok is False
     assert checks["audit_anchor_tls"].ok is False
+
+
+
+def test_production_configuration_rejects_static_identity_material(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv(
+        "SERVICE_IDENTITIES_JSON",
+        '{"legacy":{"token":"x","roles":["reader"]}}',
+    )
+    checks = {
+        check.name: check
+        for check in production_configuration_checks()
+    }
+    assert checks["static_identities_absent"].ok is False
+
+
+def test_production_configuration_rejects_unbounded_abuse_limits(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "MAX_REQUEST_BODY_BYTES",
+        "16777216",
+    )
+    monkeypatch.setenv(
+        "BILLING_RATE_LIMIT_PER_MINUTE",
+        "1000000",
+    )
+    checks = {
+        check.name: check
+        for check in production_configuration_checks()
+    }
+    assert checks["request_body_limit"].ok is False
+    assert checks["billing_rate_limit"].ok is False

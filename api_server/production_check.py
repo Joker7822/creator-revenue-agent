@@ -58,6 +58,20 @@ def _json_secret(
     return True, f"source={source}", parsed
 
 
+def _secret_absent(name: str) -> tuple[bool, str]:
+    try:
+        value = read_secret_setting(name)
+    except Exception as exc:
+        return (
+            False,
+            str(getattr(exc, "detail", exc)),
+        )
+    return (
+        not bool(value),
+        "unset" if not value else "configured",
+    )
+
+
 def production_configuration_checks() -> list[Check]:
     checks: list[Check] = []
 
@@ -124,6 +138,36 @@ def production_configuration_checks() -> list[Check]:
                 ).strip().lower()
                 == "jwt",
                 "SERVICE_AUTH_MODE must be jwt",
+            ),
+            _check(
+                "static_identities_absent",
+                _secret_absent(
+                    "SERVICE_IDENTITIES_JSON"
+                )[0],
+                _secret_absent(
+                    "SERVICE_IDENTITIES_JSON"
+                )[1],
+            ),
+            _check(
+                "legacy_tokens_absent",
+                (
+                    _secret_absent(
+                        "INTERNAL_API_TOKEN"
+                    )[0]
+                    and _secret_absent(
+                        "CUSTOM_API_TOKEN"
+                    )[0]
+                ),
+                (
+                    "INTERNAL_API_TOKEN="
+                    + _secret_absent(
+                        "INTERNAL_API_TOKEN"
+                    )[1]
+                    + "; CUSTOM_API_TOKEN="
+                    + _secret_absent(
+                        "CUSTOM_API_TOKEN"
+                    )[1]
+                ),
             ),
             _check(
                 "issued_record_required",
@@ -232,6 +276,68 @@ def production_configuration_checks() -> list[Check]:
             f"active_key_id={active_audit_kid or '<unset>'}",
         )
     )
+
+    def bounded_int(
+        name: str,
+        *,
+        minimum: int,
+        maximum: int,
+        default: int,
+    ) -> tuple[bool, str]:
+        raw = os.getenv(name, str(default))
+        try:
+            value = int(raw)
+        except ValueError:
+            return False, "invalid integer"
+        return (
+            minimum <= value <= maximum,
+            f"value={value}; allowed={minimum}..{maximum}",
+        )
+
+    for check_name, env_name, minimum, maximum, default in (
+        (
+            "request_body_limit",
+            "MAX_REQUEST_BODY_BYTES",
+            1024,
+            4_194_304,
+            1_048_576,
+        ),
+        (
+            "billing_rate_limit",
+            "BILLING_RATE_LIMIT_PER_MINUTE",
+            1,
+            10_000,
+            120,
+        ),
+        (
+            "credential_rate_limit",
+            "CREDENTIAL_RATE_LIMIT_PER_MINUTE",
+            1,
+            1_000,
+            30,
+        ),
+        (
+            "rollout_rate_limit",
+            "ROLLOUT_RATE_LIMIT_PER_MINUTE",
+            1,
+            1_000,
+            30,
+        ),
+        (
+            "verification_webhook_rate_limit",
+            "VERIFICATION_WEBHOOK_RATE_LIMIT_PER_MINUTE",
+            1,
+            50_000,
+            300,
+        ),
+    ):
+        ok, detail = bounded_int(
+            env_name,
+            minimum=minimum,
+            maximum=maximum,
+            default=default,
+        )
+        checks.append(_check(check_name, ok, detail))
 
     anchor_url = os.getenv(
         "AUDIT_ANCHOR_BASE_URL",

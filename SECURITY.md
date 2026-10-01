@@ -227,3 +227,13 @@ High-risk workflow actions now use server-configured service identities and role
 - Request bodies are bounded by `MAX_REQUEST_BODY_BYTES`.
 - Sensitive write surfaces use process-local fixed-window rate limits and emit 429 with `Retry-After`.
 - Process-local rate limiting is defense in depth, not a substitute for distributed ingress/WAF/API-gateway limits across replicas.
+
+
+## Final security release gate
+
+- Steady-state production rejects configured static service identities and legacy bearer-token material, even when JWT mode is selected.
+- Request-body and sensitive-write rate limits must stay within explicit production bounds.
+- High-risk write surfaces are continuously tested against a read-only principal to prevent RBAC regressions.
+- Authentication failures and generic errors are tested not to reflect bearer tokens or request payload content.
+- Production-path E2E uses issued short-lived JWTs for verification writer, reviewer, publisher, billing writer, and reader identities rather than relying on one test-admin credential.
+- The final CLI release gate also requires the database Alembic revision to equal head.

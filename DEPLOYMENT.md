@@ -225,3 +225,18 @@ VERIFICATION_WEBHOOK_RATE_LIMIT_PER_MINUTE=300
 These counters are process-local. Configure equivalent or stricter distributed limits at the reverse proxy, load balancer, WAF, or API gateway so limits remain effective across multiple application replicas.
 
 Provision billing ingestion with the least-privilege `billing_writer` role rather than a general admin credential.
+
+
+## Final release gate
+
+Immediately before traffic cutover, execute:
+
+```bash
+python -m api_server.release_gate
+```
+
+This is stricter than the configuration-only preflight because it also checks the connected database migration revision.
+
+In JWT-only steady-state production, do not leave `SERVICE_IDENTITIES_JSON`, `INTERNAL_API_TOKEN`, or `CUSTOM_API_TOKEN` configured. Bootstrap or migration credentials should be removed after short-lived JWT issuance is operational.
+
+The release gate also enforces bounded request-body and sensitive mutation rate-limit settings so accidental effectively-unlimited values cannot pass production preflight.
