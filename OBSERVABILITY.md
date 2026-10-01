@@ -68,6 +68,8 @@ rollout_state_drift
 rollback_failures
 readiness_failures
 server_or_dependency_5xx
+rate_limit_rejections
+oversized_request_rejections
 ```
 
 A rollout monitor result of `state_drift` increments its signal even though the HTTP response is successful.
@@ -88,3 +90,6 @@ OPS_ALERT_READINESS_FAILURE_THRESHOLD=1
 ```
 
 Thresholds apply to counters accumulated since the current process started. They are useful as an internal safety surface, but production alerting should ingest these signals into durable monitoring with time-windowed rate alerts and multi-instance aggregation.
+
+
+Abuse-protection rejections are observable without logging request bodies or credentials. HTTP 429 increments `rate_limit_rejections`; HTTP 413 increments `oversized_request_rejections`.

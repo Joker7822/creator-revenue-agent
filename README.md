@@ -631,3 +631,14 @@ Highlights:
 - read-only container filesystem and dropped Linux capabilities in the production Compose example
 
 Do not place real secret files under source control. `secrets/`, `deploy/secrets/`, database dumps, and dump checksums are ignored.
+
+
+## Billing integrity and abuse protection
+
+Billing writes now require the dedicated `billing_writer` role (or `admin`).
+
+New sales are accepted only when the transaction amount exactly matches the product's current price. Refunds must identify `original_sale_id`, must use the same product and currency as that sale, cannot predate the sale, and cumulative refunds cannot exceed the original sale amount.
+
+Refund creation locks the original sale/product state on row-locking databases, preventing concurrent partial refunds from exceeding the sale total.
+
+The API also applies bounded request bodies and process-local fixed-window limits to billing writes, credential mutation, rollout mutation, and verification webhooks. Production should additionally enforce distributed limits at the ingress/API-gateway layer.

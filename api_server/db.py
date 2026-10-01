@@ -326,6 +326,12 @@ class TransactionRecord(Base):
         index=True,
     )
     kind: Mapped[str] = mapped_column(String(16), index=True)
+    original_sale_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("transactions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     amount_minor_units: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), index=True)
     occurred_at: Mapped[datetime] = mapped_column(

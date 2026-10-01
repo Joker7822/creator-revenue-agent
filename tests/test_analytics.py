@@ -176,6 +176,7 @@ def test_metrics_combines_funnel_and_billing() -> None:
             "transaction_id": "refund_1",
             "product_id": product_id,
             "kind": "refund",
+            "original_sale_id": "sale_0",
             "amount_minor_units": 500,
             "currency": "JPY",
         },

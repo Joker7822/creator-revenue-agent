@@ -214,3 +214,16 @@ High-risk workflow actions now use server-configured service identities and role
 - PostgreSQL backups use custom format, restrictive umask, and SHA-256 checksum files.
 - Restore requires explicit `RESTORE_CONFIRM=YES` and should be rehearsed only against an isolated database.
 - CI continuously verifies image non-root configuration and PostgreSQL backup/restore compatibility.
+
+
+## Billing integrity and abuse controls
+
+- Transaction ingestion requires `billing_writer` or `admin`.
+- New sale amounts must equal the currently locked product price; stale/mismatched prices fail closed.
+- Every new refund must reference an existing sale from the same product and currency.
+- The original sale row is locked before cumulative refund value is checked, preventing parallel over-refunds on PostgreSQL.
+- Refund timestamps cannot precede their original sale.
+- Existing pre-`20261001_0008` refund rows may have no original-sale link; new API writes cannot create such rows. If unlinked historical refunds exist for a product, new refunds fail closed until those records are reconciled.
+- Request bodies are bounded by `MAX_REQUEST_BODY_BYTES`.
+- Sensitive write surfaces use process-local fixed-window rate limits and emit 429 with `Retry-After`.
+- Process-local rate limiting is defense in depth, not a substitute for distributed ingress/WAF/API-gateway limits across replicas.

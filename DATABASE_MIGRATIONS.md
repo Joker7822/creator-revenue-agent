@@ -106,3 +106,10 @@ For production releases:
 6. create/verify an external audit anchor after cutover
 
 The application image intentionally does not run Alembic automatically. Multiple replicas must not race to perform migrations.
+
+
+## Refund linkage revision
+
+Revision `20261001_0008` adds nullable `transactions.original_sale_id`, a self-referencing foreign key, and an index.
+
+The column remains nullable for migration compatibility with historical refund rows. Application code requires it for every newly ingested refund.

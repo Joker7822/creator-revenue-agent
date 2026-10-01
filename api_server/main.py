@@ -5,6 +5,13 @@ from time import perf_counter
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import JSONResponse
 
+from api_server.abuse_protection import (
+    request_body_limit_bytes,
+    require_billing_rate_limit,
+    require_credential_rate_limit,
+    require_rollout_rate_limit,
+    require_verification_webhook_rate_limit,
+)
 from api_server.audit_anchor import (
     audit_anchor_freshness,
     create_audit_anchor,
@@ -164,7 +171,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.23.0",
+    version="0.24.0",
     lifespan=lifespan,
 )
 
@@ -182,7 +189,37 @@ async def observability_middleware(
     started = perf_counter()
 
     try:
-        response = await call_next(request)
+        response = None
+        if request.method in {"POST", "PUT", "PATCH"}:
+            body_limit = request_body_limit_bytes()
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    declared_length = int(content_length)
+                except ValueError:
+                    declared_length = -1
+                if declared_length > body_limit:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={
+                            "detail": "request body too large",
+                            "error_code": "request_body_too_large",
+                        },
+                    )
+
+            if response is None:
+                body = await request.body()
+                if len(body) > body_limit:
+                    response = JSONResponse(
+                        status_code=413,
+                        content={
+                            "detail": "request body too large",
+                            "error_code": "request_body_too_large",
+                        },
+                    )
+
+        if response is None:
+            response = await call_next(request)
     except Exception as exc:
         duration_ms = (perf_counter() - started) * 1000
         route = request_route_template(request.scope)
@@ -272,6 +309,9 @@ def credential_issue(
     principal: ServicePrincipal = Depends(
         require_roles("credential_admin")
     ),
+    _rate_limit: None = Depends(
+        require_credential_rate_limit
+    ),
 ) -> CredentialResponse:
     with SessionLocal() as session:
         return issue_service_credential(
@@ -310,6 +350,9 @@ def credential_revoke(
     request: CredentialRevokeRequest,
     principal: ServicePrincipal = Depends(
         require_roles("credential_admin")
+    ),
+    _rate_limit: None = Depends(
+        require_credential_rate_limit
     ),
 ) -> CredentialStatusResponse:
     with SessionLocal() as session:
@@ -353,6 +396,9 @@ def verification_webhook_key_status(
 )
 async def verification_provider_webhook(
     request: Request,
+    _rate_limit: None = Depends(
+        require_verification_webhook_rate_limit
+    ),
     provider: str = Header(
         ...,
         alias="X-Verification-Provider",
@@ -593,7 +639,10 @@ def publication_get(job_id: str) -> PublicationResponse:
 @app.post(
     "/v1/products",
     response_model=ProductResponse,
-    dependencies=[Depends(require_service_token)],
+    dependencies=[
+        Depends(require_roles("billing_writer")),
+        Depends(require_billing_rate_limit),
+    ],
 )
 def product_create(request: ProductCreateRequest) -> ProductResponse:
     with SessionLocal() as session:
@@ -619,7 +668,10 @@ def product_get(product_id: str) -> ProductResponse:
 @app.post(
     "/v1/transactions",
     response_model=TransactionResponse,
-    dependencies=[Depends(require_service_token)],
+    dependencies=[
+        Depends(require_roles("billing_writer")),
+        Depends(require_billing_rate_limit),
+    ],
 )
 def transaction_create(
     request: TransactionCreateRequest,
@@ -630,6 +682,7 @@ def transaction_create(
             transaction_id=request.transaction_id,
             product_id=request.product_id,
             kind=request.kind,
+            original_sale_id=request.original_sale_id,
             amount_minor_units=request.amount_minor_units,
             currency=request.currency,
             occurred_at=request.occurred_at,
@@ -1045,6 +1098,9 @@ def change_set_apply(
     principal: ServicePrincipal = Depends(
         require_roles("rollout_operator")
     ),
+    _rate_limit: None = Depends(
+        require_rollout_rate_limit
+    ),
 ) -> RolloutResponse:
     with SessionLocal() as session:
         return apply_change_set(
@@ -1090,6 +1146,9 @@ def rollout_rollback(
     request: RollbackRequest,
     principal: ServicePrincipal = Depends(
         require_roles("incident_manager")
+    ),
+    _rate_limit: None = Depends(
+        require_rollout_rate_limit
     ),
 ) -> RollbackResponse:
     with SessionLocal() as session:

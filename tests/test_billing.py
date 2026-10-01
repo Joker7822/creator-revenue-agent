@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from api_server.db import SessionLocal, TransactionRecord
 from api_server.main import app
 
 
@@ -74,7 +75,11 @@ def create_published_job() -> dict:
     }
 
 
-def create_product(publication_id: str, currency: str = "JPY") -> dict:
+def create_product(
+    publication_id: str,
+    currency: str = "JPY",
+    price_minor_units: int = 1500,
+) -> dict:
     response = client.post(
         "/v1/products",
         headers=auth(),
@@ -82,7 +87,7 @@ def create_product(publication_id: str, currency: str = "JPY") -> dict:
             "publication_id": publication_id,
             "name": "Premium release",
             "currency": currency,
-            "price_minor_units": 1500,
+            "price_minor_units": price_minor_units,
         },
     )
     assert response.status_code == 200
@@ -201,6 +206,7 @@ def test_revenue_is_grouped_by_currency() -> None:
     usd = create_product(
         usd_state["publication"]["publication_id"],
         currency="USD",
+        price_minor_units=2000,
     )
 
     transactions = [
@@ -222,6 +228,7 @@ def test_revenue_is_grouped_by_currency() -> None:
             "transaction_id": "tx_jpy_refund",
             "product_id": jpy["product_id"],
             "kind": "refund",
+            "original_sale_id": "tx_jpy_sale_1",
             "amount_minor_units": 500,
             "currency": "JPY",
         },
@@ -288,3 +295,219 @@ def test_billing_writes_audit_events() -> None:
     events = [row["event_type"] for row in response.json()]
     assert "product_created" in events
     assert "transaction_recorded" in events
+
+
+
+def test_sale_amount_must_match_current_product_price() -> None:
+    state = create_published_job()
+    product = create_product(
+        state["publication"]["publication_id"]
+    )
+
+    response = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "tx_wrong_price",
+            "product_id": product["product_id"],
+            "kind": "sale",
+            "amount_minor_units": 1499,
+            "currency": "JPY",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "sale amount must match current product price"
+    )
+
+
+def test_refund_requires_original_sale() -> None:
+    state = create_published_job()
+    product = create_product(
+        state["publication"]["publication_id"]
+    )
+
+    response = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "refund_without_sale",
+            "product_id": product["product_id"],
+            "kind": "refund",
+            "amount_minor_units": 500,
+            "currency": "JPY",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "refund requires original sale"
+    )
+
+
+def test_refunds_cannot_exceed_original_sale() -> None:
+    state = create_published_job()
+    product = create_product(
+        state["publication"]["publication_id"]
+    )
+    sale = {
+        "transaction_id": "sale_refund_cap",
+        "product_id": product["product_id"],
+        "kind": "sale",
+        "amount_minor_units": 1500,
+        "currency": "JPY",
+    }
+    assert client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json=sale,
+    ).status_code == 200
+
+    first = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "refund_partial_1",
+            "product_id": product["product_id"],
+            "kind": "refund",
+            "original_sale_id": sale["transaction_id"],
+            "amount_minor_units": 1000,
+            "currency": "JPY",
+        },
+    )
+    assert first.status_code == 200
+    assert first.json()["original_sale_id"] == sale["transaction_id"]
+
+    second = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "refund_partial_2",
+            "product_id": product["product_id"],
+            "kind": "refund",
+            "original_sale_id": sale["transaction_id"],
+            "amount_minor_units": 501,
+            "currency": "JPY",
+        },
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"] == (
+        "refund exceeds original sale amount"
+    )
+
+
+def test_refund_must_match_original_sale_product() -> None:
+    first_state = create_published_job()
+    first_product = create_product(
+        first_state["publication"]["publication_id"]
+    )
+    second_state = create_published_job()
+    second_product = create_product(
+        second_state["publication"]["publication_id"]
+    )
+
+    sale = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "sale_product_match",
+            "product_id": first_product["product_id"],
+            "kind": "sale",
+            "amount_minor_units": 1500,
+            "currency": "JPY",
+        },
+    )
+    assert sale.status_code == 200
+
+    response = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "refund_wrong_product",
+            "product_id": second_product["product_id"],
+            "kind": "refund",
+            "original_sale_id": "sale_product_match",
+            "amount_minor_units": 100,
+            "currency": "JPY",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "refund product mismatch"
+
+
+def test_billing_writer_role_is_required() -> None:
+    state = create_published_job()
+    product = create_product(
+        state["publication"]["publication_id"]
+    )
+    payload = {
+        "transaction_id": "tx_billing_role",
+        "product_id": product["product_id"],
+        "kind": "sale",
+        "amount_minor_units": 1500,
+        "currency": "JPY",
+    }
+
+    forbidden = client.post(
+        "/v1/transactions",
+        headers={"Authorization": "Bearer reader-token"},
+        json=payload,
+    )
+    assert forbidden.status_code == 403
+
+    allowed = client.post(
+        "/v1/transactions",
+        headers={"Authorization": "Bearer billing-token"},
+        json=payload,
+    )
+    assert allowed.status_code == 200
+
+
+
+def test_historical_unlinked_refunds_block_new_refunds() -> None:
+    state = create_published_job()
+    product = create_product(
+        state["publication"]["publication_id"]
+    )
+    sale_id = "sale_before_legacy_refund"
+    sale = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": sale_id,
+            "product_id": product["product_id"],
+            "kind": "sale",
+            "amount_minor_units": 1500,
+            "currency": "JPY",
+        },
+    )
+    assert sale.status_code == 200
+
+    with SessionLocal() as session:
+        session.add(
+            TransactionRecord(
+                id="legacy_unlinked_refund",
+                product_id=product["product_id"],
+                kind="refund",
+                original_sale_id=None,
+                amount_minor_units=100,
+                currency="JPY",
+            )
+        )
+        session.commit()
+
+    response = client.post(
+        "/v1/transactions",
+        headers=auth(),
+        json={
+            "transaction_id": "new_refund_after_legacy",
+            "product_id": product["product_id"],
+            "kind": "refund",
+            "original_sale_id": sale_id,
+            "amount_minor_units": 100,
+            "currency": "JPY",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "historical unlinked refunds require reconciliation"
+    )

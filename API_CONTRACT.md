@@ -544,3 +544,38 @@ requires service authentication and returns process-local operational counters a
 Error classes are grouped into authentication rejection, state conflict, validation error, dependency/availability failure, server error, and general client error.
 
 The alert list includes the current count, configured threshold, severity, and triggered state for each incident signal. Thresholds are configured with `OPS_ALERT_*_THRESHOLD` environment variables.
+
+
+## Billing transaction integrity
+
+```text
+POST /v1/transactions
+```
+
+requires `billing_writer` (or `admin`).
+
+For `kind=sale`:
+
+- `original_sale_id` must be absent
+- product must be active
+- currency must match the product
+- `amount_minor_units` must exactly equal the current product price
+
+For `kind=refund`:
+
+- `original_sale_id` is required
+- the referenced transaction must be a sale
+- refund product and currency must match the original sale
+- refund time cannot be earlier than the sale
+- cumulative refunds referencing that sale cannot exceed the original sale amount
+- if the product has historical unlinked refund rows, new refunds return HTTP 409 until reconciliation
+
+Transaction responses include nullable `original_sale_id`.
+
+## Abuse protection
+
+Write requests are rejected with HTTP 413 when the actual body exceeds `MAX_REQUEST_BODY_BYTES`.
+
+Sensitive endpoints use process-local fixed-window rate limits and return HTTP 429 with `Retry-After` when exceeded. Configurable buckets cover billing writes, credential mutation, rollout mutation, and verification-provider webhooks.
+
+Operational telemetry exposes `rate_limit_rejections` and `oversized_request_rejections` incident signals.

@@ -186,6 +186,11 @@ class TransactionCreateRequest(BaseModel):
     transaction_id: str = Field(min_length=1, max_length=128)
     product_id: str = Field(min_length=1, max_length=128)
     kind: Literal["sale", "refund"]
+    original_sale_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
     amount_minor_units: int = Field(gt=0, le=1_000_000_000)
     currency: str = Field(min_length=3, max_length=3)
     occurred_at: datetime | None = None
@@ -203,6 +208,7 @@ class TransactionResponse(BaseModel):
     transaction_id: str
     product_id: str
     kind: str
+    original_sale_id: str | None
     amount_minor_units: int
     currency: str
     occurred_at: datetime

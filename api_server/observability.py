@@ -249,6 +249,16 @@ class OperationalMetrics:
             if status_code in {401, 403}:
                 self._incident_signals["auth_rejections"] += 1
 
+            if status_code == 429:
+                self._incident_signals[
+                    "rate_limit_rejections"
+                ] += 1
+
+            if status_code == 413:
+                self._incident_signals[
+                    "oversized_request_rejections"
+                ] += 1
+
             if (
                 route == "/v1/webhooks/verifications"
                 and status_code >= 400
@@ -415,6 +425,18 @@ def operational_status_snapshot() -> dict[str, Any]:
             "auth_rejections",
             "OPS_ALERT_AUTH_REJECTION_THRESHOLD",
             20,
+            "warning",
+        ),
+        (
+            "rate_limit_rejections",
+            "OPS_ALERT_RATE_LIMIT_REJECTION_THRESHOLD",
+            20,
+            "warning",
+        ),
+        (
+            "oversized_request_rejections",
+            "OPS_ALERT_OVERSIZED_REQUEST_THRESHOLD",
+            5,
             "warning",
         ),
         (

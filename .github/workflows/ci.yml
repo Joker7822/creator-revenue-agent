@@ -107,7 +107,7 @@ jobs:
 
           test "$(psql "postgresql://postgres:postgres@127.0.0.1:5432/creator_agent_restore" -Atc "SELECT last_hash FROM audit_chain_state WHERE id=1;")" = "$(printf '3%.0s' {1..64})"
 
-          DATABASE_URL="postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent_restore"             alembic current | grep "20261001_0007"
+          DATABASE_URL="postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent_restore"             alembic current | grep "20261001_0008"
 
 
   container-hardening:

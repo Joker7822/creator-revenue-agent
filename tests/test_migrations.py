@@ -432,3 +432,42 @@ def test_state_versions_upgrade_from_0006(
 
     assert approval_version == 1
     assert product_version == 1
+
+
+
+def test_refund_link_upgrade_from_0007(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_url = (
+        f"sqlite:///{tmp_path / 'refund-link-0007.db'}"
+    )
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    config = config_for(database_url)
+
+    command.upgrade(config, "20261001_0007")
+    command.upgrade(config, "head")
+
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        columns = {
+            column["name"]: column
+            for column in inspector.get_columns("transactions")
+        }
+        indexes = {
+            index["name"]
+            for index in inspector.get_indexes("transactions")
+        }
+        foreign_keys = inspector.get_foreign_keys("transactions")
+    finally:
+        engine.dispose()
+
+    assert "original_sale_id" in columns
+    assert columns["original_sale_id"]["nullable"] is True
+    assert "ix_transactions_original_sale_id" in indexes
+    assert any(
+        fk["referred_table"] == "transactions"
+        and fk["constrained_columns"] == ["original_sale_id"]
+        for fk in foreign_keys
+    )

@@ -158,6 +158,10 @@ os.environ.setdefault(
                 "token": "verification-token",
                 "roles": ["verification_writer"],
             },
+            "billing-service": {
+                "token": "billing-token",
+                "roles": ["billing_writer"],
+            },
             "audit-anchor-service": {
                 "token": "audit-anchor-token",
                 "roles": ["audit_anchor_operator"],
@@ -227,8 +231,10 @@ from api_server.db import Base, engine
 
 @pytest.fixture(autouse=True)
 def clean_database():
+    from api_server.abuse_protection import rate_limiter
     from api_server.observability import operational_metrics
 
+    rate_limiter.reset()
     operational_metrics.reset()
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):

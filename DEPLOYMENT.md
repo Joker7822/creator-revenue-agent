@@ -204,5 +204,24 @@ Before accepting traffic:
 - [ ] audit HMAC key ring is configured
 - [ ] external WORM anchor is healthy and fresh
 - [ ] rollout anchor freshness enforcement is enabled
+- [ ] distributed ingress/API-gateway rate limits are configured
+- [ ] request body limits are appropriate for expected payloads
 - [ ] structured logs and operational alerts are collected externally
 - [ ] `/ready` returns HTTP 200
+
+
+## Billing and abuse-protection deployment settings
+
+Recommended starting values:
+
+```text
+MAX_REQUEST_BODY_BYTES=1048576
+BILLING_RATE_LIMIT_PER_MINUTE=120
+CREDENTIAL_RATE_LIMIT_PER_MINUTE=30
+ROLLOUT_RATE_LIMIT_PER_MINUTE=30
+VERIFICATION_WEBHOOK_RATE_LIMIT_PER_MINUTE=300
+```
+
+These counters are process-local. Configure equivalent or stricter distributed limits at the reverse proxy, load balancer, WAF, or API gateway so limits remain effective across multiple application replicas.
+
+Provision billing ingestion with the least-privilege `billing_writer` role rather than a general admin credential.

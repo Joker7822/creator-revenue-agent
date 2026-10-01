@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -447,6 +447,7 @@ def _transaction_response(record: TransactionRecord) -> TransactionResponse:
         transaction_id=record.id,
         product_id=record.product_id,
         kind=record.kind,
+        original_sale_id=record.original_sale_id,
         amount_minor_units=record.amount_minor_units,
         currency=record.currency,
         occurred_at=record.occurred_at,
@@ -460,23 +461,17 @@ def record_transaction(
     transaction_id: str,
     product_id: str,
     kind: str,
+    original_sale_id: str | None,
     amount_minor_units: int,
     currency: str,
     occurred_at: datetime | None,
 ) -> TransactionResponse:
-    product = session.get(ProductRecord, product_id)
-    if product is None:
-        raise HTTPException(status_code=404, detail="product not found")
-    if not product.active:
-        raise HTTPException(status_code=409, detail="product inactive")
-    if product.currency != currency:
-        raise HTTPException(status_code=409, detail="currency mismatch")
-
     existing = session.get(TransactionRecord, transaction_id)
     if existing is not None:
         same = (
             existing.product_id == product_id
             and existing.kind == kind
+            and existing.original_sale_id == original_sale_id
             and existing.amount_minor_units == amount_minor_units
             and existing.currency == currency
         )
@@ -487,14 +482,134 @@ def record_transaction(
             )
         return _transaction_response(existing)
 
+    product = lock_row(
+        session,
+        ProductRecord,
+        ProductRecord.id,
+        product_id,
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    if product.currency != currency:
+        raise HTTPException(status_code=409, detail="currency mismatch")
+
+    effective_occurred_at = occurred_at or utcnow()
+
+    if kind == "sale":
+        if original_sale_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="sale cannot reference an original sale",
+            )
+        if not product.active:
+            raise HTTPException(status_code=409, detail="product inactive")
+        if amount_minor_units != product.price_minor_units:
+            raise HTTPException(
+                status_code=409,
+                detail="sale amount must match current product price",
+            )
+    elif kind == "refund":
+        if not original_sale_id:
+            raise HTTPException(
+                status_code=409,
+                detail="refund requires original sale",
+            )
+        if original_sale_id == transaction_id:
+            raise HTTPException(
+                status_code=409,
+                detail="refund cannot reference itself",
+            )
+
+        original_sale = lock_row(
+            session,
+            TransactionRecord,
+            TransactionRecord.id,
+            original_sale_id,
+        )
+        if original_sale is None or original_sale.kind != "sale":
+            raise HTTPException(
+                status_code=409,
+                detail="valid original sale required",
+            )
+        if original_sale.product_id != product_id:
+            raise HTTPException(
+                status_code=409,
+                detail="refund product mismatch",
+            )
+        if original_sale.currency != currency:
+            raise HTTPException(
+                status_code=409,
+                detail="refund currency mismatch",
+            )
+
+        sale_occurred_at = original_sale.occurred_at
+        if sale_occurred_at.tzinfo is None:
+            sale_occurred_at = sale_occurred_at.replace(
+                tzinfo=timezone.utc
+            )
+        compare_occurred_at = effective_occurred_at
+        if compare_occurred_at.tzinfo is None:
+            compare_occurred_at = compare_occurred_at.replace(
+                tzinfo=timezone.utc
+            )
+        if compare_occurred_at < sale_occurred_at:
+            raise HTTPException(
+                status_code=409,
+                detail="refund cannot occur before original sale",
+            )
+
+        unlinked_refunds = session.scalar(
+            select(func.count(TransactionRecord.id)).where(
+                TransactionRecord.kind == "refund",
+                TransactionRecord.product_id == product_id,
+                TransactionRecord.original_sale_id.is_(None),
+            )
+        )
+        if int(unlinked_refunds or 0) > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "historical unlinked refunds require "
+                    "reconciliation"
+                ),
+            )
+
+        refunded_minor_units = session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(TransactionRecord.amount_minor_units),
+                    0,
+                )
+            ).where(
+                TransactionRecord.kind == "refund",
+                TransactionRecord.original_sale_id
+                == original_sale_id,
+            )
+        )
+        if (
+            int(refunded_minor_units or 0)
+            + amount_minor_units
+            > original_sale.amount_minor_units
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="refund exceeds original sale amount",
+            )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="unsupported transaction kind",
+        )
+
     publication = session.get(PublicationRecord, product.publication_id)
     transaction = TransactionRecord(
         id=transaction_id,
         product_id=product_id,
         kind=kind,
+        original_sale_id=original_sale_id,
         amount_minor_units=amount_minor_units,
         currency=currency,
-        occurred_at=occurred_at or utcnow(),
+        occurred_at=effective_occurred_at,
     )
     session.add(transaction)
     add_audit(
@@ -506,11 +621,34 @@ def record_transaction(
             "transaction_id": transaction_id,
             "product_id": product_id,
             "kind": kind,
+            "original_sale_id": original_sale_id,
             "amount_minor_units": amount_minor_units,
             "currency": currency,
         },
     )
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = session.get(
+            TransactionRecord,
+            transaction_id,
+        )
+        if existing is not None:
+            same = (
+                existing.product_id == product_id
+                and existing.kind == kind
+                and existing.original_sale_id == original_sale_id
+                and existing.amount_minor_units == amount_minor_units
+                and existing.currency == currency
+            )
+            if same:
+                return _transaction_response(existing)
+        raise HTTPException(
+            status_code=409,
+            detail="concurrent transaction conflict",
+        )
+
     session.refresh(transaction)
     return _transaction_response(transaction)
 
