@@ -1,0 +1,648 @@
+name: Staging Release Rehearsal
+
+on:
+  workflow_run:
+    workflows:
+      - Release Image
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+  attestations: read
+
+concurrency:
+  group: staging-release-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  acquire-release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_tag: ${{ steps.identity.outputs.release_tag }}
+      source_commit: ${{ steps.identity.outputs.source_commit }}
+      image_ref: ${{ steps.identity.outputs.image_ref }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate triggering release run
+        shell: bash
+        env:
+          RELEASE_EVENT: ${{ github.event.workflow_run.event }}
+          RELEASE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          RELEASE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          test "$RELEASE_EVENT" = "push"
+          test "$RELEASE_HEAD_REPOSITORY" = "$GITHUB_REPOSITORY"
+          echo "$RELEASE_HEAD_SHA" | grep -Eq '^[0-9a-f]{40}$'
+
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor \
+            "$RELEASE_HEAD_SHA" \
+            refs/remotes/origin/main
+
+      - name: Download exact release evidence
+        id: artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID/artifacts?per_page=100" \
+            > release-artifacts.json
+
+          ARTIFACT_NAME="$(
+            python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("release-artifacts.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          matches = [
+              item
+              for item in payload.get("artifacts", [])
+              if item.get("name", "").startswith(
+                  "release-evidence-v"
+              )
+              and not item.get("expired", False)
+          ]
+          if len(matches) != 1:
+              raise SystemExit(
+                  "expected exactly one unexpired "
+                  "release-evidence-v* artifact; "
+                  f"found {len(matches)}"
+              )
+          print(matches[0]["name"])
+          PY
+          )"
+
+          mkdir -p release-artifact
+          gh run download "$RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir release-artifact
+
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release evidence
+        id: identity
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ steps.artifact.outputs.artifact_name }}
+          RELEASE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          cd release-artifact
+
+          sha256sum --check release-evidence.json.sha256
+          sha256sum --check release-sbom.cdx.json.sha256
+
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          tag_re = re.compile(
+              r"^v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$"
+          )
+          digest_re = re.compile(
+              r"^sha256:[0-9a-f]{64}$"
+          )
+
+          evidence = json.loads(
+              Path("release-evidence.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          if evidence.get("version") != "release-evidence-v1":
+              raise SystemExit("unexpected release evidence version")
+
+          tag = evidence.get("release_tag", "")
+          if tag_re.fullmatch(tag) is None:
+              raise SystemExit("invalid release tag in evidence")
+
+          source_commit = evidence.get("source_commit", "")
+          if source_commit != os.environ["RELEASE_HEAD_SHA"]:
+              raise SystemExit(
+                  "release evidence source commit does not "
+                  "match triggering workflow"
+              )
+
+          image_name = evidence.get("image_name", "").lower()
+          expected_image = (
+              "ghcr.io/" + os.environ["GITHUB_REPOSITORY"].lower()
+          )
+          if image_name != expected_image:
+              raise SystemExit(
+                  "release image repository does not match "
+                  "this repository"
+              )
+
+          image_digest = evidence.get("image_digest", "")
+          if digest_re.fullmatch(image_digest) is None:
+              raise SystemExit("invalid image digest in evidence")
+
+          expected_ref = f"{expected_image}@{image_digest}"
+          image_ref = evidence.get(
+              "image_reference",
+              "",
+          ).lower()
+          if image_ref != expected_ref:
+              raise SystemExit(
+                  "release evidence image reference mismatch"
+              )
+
+          release_image = Path(
+              "release-image.txt"
+          ).read_text(encoding="utf-8").strip().lower()
+          if release_image != expected_ref:
+              raise SystemExit(
+                  "release-image.txt does not match evidence"
+              )
+
+          if (
+              os.environ["ARTIFACT_NAME"]
+              != f"release-evidence-{tag}"
+          ):
+              raise SystemExit(
+                  "release artifact name does not match tag"
+              )
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as handle:
+              handle.write(f"release_tag={tag}\n")
+              handle.write(
+                  f"source_commit={source_commit}\n"
+              )
+              handle.write(f"image_ref={expected_ref}\n")
+          PY
+
+          git -C .. fetch --force --tags origin
+
+          # Resolve the validated tag again from release evidence for
+          # the same-step source-commit check.
+          RELEASE_TAG="$(
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          print(
+              json.loads(
+                  Path("release-evidence.json").read_text(
+                      encoding="utf-8"
+                  )
+              )["release_tag"]
+          )
+          PY
+          )"
+          TAG_COMMIT="$(
+            git -C .. rev-list -n 1 "$RELEASE_TAG"
+          )"
+          test "$TAG_COMMIT" = "$RELEASE_HEAD_SHA"
+
+  promotion-gate:
+    needs:
+      - acquire-release
+    uses: ./.github/workflows/promote.yml
+    with:
+      release_tag: ${{ needs.acquire-release.outputs.release_tag }}
+      image_ref: ${{ needs.acquire-release.outputs.image_ref }}
+      target_environment: staging
+
+  rollout-staging:
+    needs:
+      - acquire-release
+      - promotion-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: staging
+    env:
+      RELEASE_TAG: ${{ needs.acquire-release.outputs.release_tag }}
+      SOURCE_COMMIT: ${{ needs.acquire-release.outputs.source_commit }}
+      IMAGE_REF: ${{ needs.acquire-release.outputs.image_ref }}
+      KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+      KUBE_SERVER: ${{ vars.KUBE_SERVER }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      SERVICE_JWT_ACTIVE_KID: ${{ vars.SERVICE_JWT_ACTIVE_KID }}
+      AUDIT_HASH_ACTIVE_KID: ${{ vars.AUDIT_HASH_ACTIVE_KID }}
+      AUDIT_ANCHOR_BASE_URL: ${{ vars.AUDIT_ANCHOR_BASE_URL }}
+      AUDIT_ANCHOR_NAMESPACE: ${{ vars.AUDIT_ANCHOR_NAMESPACE }}
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: "v1.31.4"
+
+      - name: Download verified promotion handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p promotion-artifact
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "verified-promotion-$RELEASE_TAG" \
+            --dir promotion-artifact
+
+          cd promotion-artifact
+          sha256sum --check promotion-evidence.json.sha256
+          sha256sum --check \
+            provenance-verification.json.sha256
+          sha256sum --check sbom-verification.json.sha256
+          sha256sum --check \
+            verified-application.yaml.sha256
+          cd verified-kubernetes
+          sha256sum --check SHA256SUMS
+
+      - name: Bind promotion evidence to release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path(
+                  "promotion-artifact/"
+                  "promotion-evidence.json"
+              ).read_text(encoding="utf-8")
+          )
+          expected = {
+              "version": "verified-promotion-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+          }
+          for key, value in expected.items():
+              if evidence.get(key) != value:
+                  raise SystemExit(
+                      f"promotion evidence mismatch for {key}"
+                  )
+          PY
+
+      - name: Render staging-specific Kubernetes bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python scripts/render_staging_manifests.py \
+            --source-dir \
+              promotion-artifact/verified-kubernetes \
+            --output-dir staging-kubernetes \
+            --release-tag "$RELEASE_TAG" \
+            --source-commit "$SOURCE_COMMIT" \
+            --image-ref "$IMAGE_REF" \
+            --namespace "$K8S_NAMESPACE" \
+            --service-jwt-active-kid \
+              "$SERVICE_JWT_ACTIVE_KID" \
+            --audit-hash-active-kid \
+              "$AUDIT_HASH_ACTIVE_KID" \
+            --audit-anchor-base-url \
+              "$AUDIT_ANCHOR_BASE_URL" \
+            --audit-anchor-namespace \
+              "$AUDIT_ANCHOR_NAMESPACE"
+
+          kubectl kustomize staging-kubernetes \
+            > staging-application.yaml
+          printf '\n---\n' >> staging-application.yaml
+          cat staging-kubernetes/migration-job.yaml \
+            >> staging-application.yaml
+
+          bash scripts/validate_kubernetes.sh \
+            staging-application.yaml
+
+          docker run --rm \
+            -v "$PWD:/work" \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict \
+            -summary \
+            -kubernetes-version 1.31.0 \
+            /work/staging-application.yaml
+
+          sha256sum staging-application.yaml \
+            > staging-application.yaml.sha256
+
+      - name: Configure exact staging cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for name in \
+            KUBE_CONTEXT \
+            KUBE_SERVER \
+            K8S_NAMESPACE \
+            SERVICE_JWT_ACTIVE_KID \
+            AUDIT_HASH_ACTIVE_KID \
+            AUDIT_ANCHOR_BASE_URL \
+            AUDIT_ANCHOR_NAMESPACE \
+            KUBECONFIG_B64
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "missing staging environment setting: $name" >&2
+              exit 1
+            fi
+          done
+
+          umask 077
+          printf '%s' "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/staging-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/staging-kubeconfig" \
+            >> "$GITHUB_ENV"
+          export KUBECONFIG="$RUNNER_TEMP/staging-kubeconfig"
+
+          kubectl config use-context "$KUBE_CONTEXT"
+          ACTUAL_SERVER="$(
+            kubectl config view \
+              --minify \
+              -o jsonpath='{.clusters[0].cluster.server}'
+          )"
+          test "$ACTUAL_SERVER" = "$KUBE_SERVER"
+
+          kubectl cluster-info >/dev/null
+          kubectl get namespace "$K8S_NAMESPACE" >/dev/null
+
+      - name: Verify staging secret contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" \
+            get secret creator-revenue-agent-secrets \
+            -o json \
+            > "$RUNNER_TEMP/staging-secret.json"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/staging-secret.json"
+              ).read_text(encoding="utf-8")
+          )
+          available = set(payload.get("data", {}))
+          required = {
+              "database_url",
+              "service_jwt_keys_json",
+              "verification_webhook_keys_json",
+              "audit_hash_keys_json",
+              "audit_anchor_token",
+              "audit_anchor_receipt_keys_json",
+          }
+          missing = sorted(required - available)
+          if missing:
+              raise SystemExit(
+                  "staging application secret is missing keys: "
+                  + ", ".join(missing)
+              )
+          PY
+
+          rm -f "$RUNNER_TEMP/staging-secret.json"
+
+      - name: Run staging migration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl apply \
+            -f staging-kubernetes/namespace.yaml
+          kubectl apply \
+            -f staging-kubernetes/service-account.yaml
+
+          kubectl -n "$K8S_NAMESPACE" \
+            delete job creator-revenue-agent-migrate \
+            --ignore-not-found=true \
+            --wait=true
+
+          kubectl -n "$K8S_NAMESPACE" \
+            create \
+            -f staging-kubernetes/migration-job.yaml
+
+          if ! kubectl -n "$K8S_NAMESPACE" \
+            wait \
+            --for=condition=complete \
+            job/creator-revenue-agent-migrate \
+            --timeout=10m
+          then
+            kubectl -n "$K8S_NAMESPACE" \
+              describe job creator-revenue-agent-migrate || true
+            kubectl -n "$K8S_NAMESPACE" \
+              logs job/creator-revenue-agent-migrate \
+              --all-containers=true || true
+            exit 1
+          fi
+
+      - name: Roll out staging application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl apply -k staging-kubernetes
+          kubectl -n "$K8S_NAMESPACE" \
+            rollout status \
+            deployment/creator-revenue-agent \
+            --timeout=10m
+          kubectl -n "$K8S_NAMESPACE" \
+            wait \
+            --for=condition=Ready \
+            pod \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            --timeout=5m
+
+          DEPLOYED_IMAGE="$(
+            kubectl -n "$K8S_NAMESPACE" \
+              get deployment creator-revenue-agent \
+              -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].image}'
+          )"
+          test "$DEPLOYED_IMAGE" = "$IMAGE_REF"
+
+          kubectl -n "$K8S_NAMESPACE" \
+            get pods \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            -o json \
+            > "$RUNNER_TEMP/staging-pods.json"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          image_ref = os.environ["IMAGE_REF"]
+          expected_digest = image_ref.split("@", 1)[1]
+          pods = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/staging-pods.json"
+              ).read_text(encoding="utf-8")
+          )
+          image_ids = []
+          for pod in pods.get("items", []):
+              statuses = pod.get(
+                  "status",
+                  {},
+              ).get("containerStatuses", [])
+              for status in statuses:
+                  if status.get("name") != "api":
+                      continue
+                  image_id = status.get("imageID", "")
+                  if expected_digest not in image_id:
+                      raise SystemExit(
+                          "running container imageID does not "
+                          "match attested digest"
+                      )
+                  image_ids.append(image_id)
+
+          if not image_ids:
+              raise SystemExit(
+                  "no running api container imageIDs found"
+              )
+          PY
+
+      - name: Write staging rollout evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" \
+            get deployment creator-revenue-agent \
+            -o json \
+            > "$RUNNER_TEMP/staging-deployment.json"
+          kubectl -n "$K8S_NAMESPACE" \
+            get pods \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            -o json \
+            > "$RUNNER_TEMP/staging-pods.json"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def sha256(path: str) -> str:
+              return hashlib.sha256(
+                  Path(path).read_bytes()
+              ).hexdigest()
+
+          deployment = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/staging-deployment.json"
+              ).read_text(encoding="utf-8")
+          )
+          pods = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/staging-pods.json"
+              ).read_text(encoding="utf-8")
+          )
+
+          image_ids = sorted(
+              {
+                  status.get("imageID", "")
+                  for pod in pods.get("items", [])
+                  for status in pod.get(
+                      "status",
+                      {},
+                  ).get("containerStatuses", [])
+                  if status.get("name") == "api"
+                  and status.get("imageID")
+              }
+          )
+
+          metadata = deployment.get("metadata", {})
+          spec = deployment.get("spec", {})
+          status = deployment.get("status", {})
+          payload = {
+              "version": "staging-rollout-evidence-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+              "kube_context": os.environ["KUBE_CONTEXT"],
+              "kube_server": os.environ["KUBE_SERVER"],
+              "namespace": os.environ["K8S_NAMESPACE"],
+              "deployment_uid": metadata.get("uid"),
+              "deployment_generation": metadata.get(
+                  "generation"
+              ),
+              "observed_generation": status.get(
+                  "observedGeneration"
+              ),
+              "desired_replicas": spec.get("replicas"),
+              "ready_replicas": status.get(
+                  "readyReplicas",
+                  0,
+              ),
+              "runtime_image_ids": image_ids,
+              "promotion_evidence_sha256": sha256(
+                  "promotion-artifact/"
+                  "promotion-evidence.json"
+              ),
+              "staging_application_sha256": sha256(
+                  "staging-application.yaml"
+              ),
+              "generated_at": datetime.now(
+                  timezone.utc
+              ).isoformat(),
+          }
+
+          Path("staging-rollout-evidence.json").write_text(
+              json.dumps(
+                  payload,
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          sha256sum staging-rollout-evidence.json \
+            > staging-rollout-evidence.json.sha256
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: staging-rehearsal-${{ needs.acquire-release.outputs.release_tag }}
+          path: |
+            staging-kubernetes/
+            staging-application.yaml
+            staging-application.yaml.sha256
+            staging-rollout-evidence.json
+            staging-rollout-evidence.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove kubeconfig
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/staging-kubeconfig"

@@ -9,6 +9,7 @@ WORKFLOWS = (
     Path(".github/workflows/agent.yml"),
     Path(".github/workflows/release.yml"),
     Path(".github/workflows/promote.yml"),
+    Path(".github/workflows/staging-release-rehearsal.yml"),
 )
 
 USES_LINE = re.compile(
@@ -80,9 +81,12 @@ def validate_promotion_workflow(path: Path) -> list[str]:
     errors: list[str] = []
 
     required = (
+        "workflow_call:",
+        "target_environment:",
+        "production|staging",
+        "environment: ${{ inputs.target_environment }}",
         "attestations: read",
         "packages: read",
-        "environment: production",
         "refs/heads/main",
         "gh attestation verify",
         "--signer-workflow",
@@ -90,7 +94,7 @@ def validate_promotion_workflow(path: Path) -> list[str]:
         "--source-ref",
         "--source-digest",
         "--deny-self-hosted-runners",
-        "--predicate-type \"https://cyclonedx.org/bom\"",
+        '--predicate-type "https://cyclonedx.org/bom"',
         "scripts/render_release_manifests.py",
         "verified-application.yaml",
         "scripts/validate_kubernetes.sh",
@@ -101,6 +105,64 @@ def validate_promotion_workflow(path: Path) -> list[str]:
         if token not in text:
             errors.append(
                 f"{path}: missing promotion invariant: {token}"
+            )
+
+    if ":latest" in text:
+        errors.append(
+            f"{path}: :latest image tags are forbidden"
+        )
+
+    if re.search(
+        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+        text,
+    ):
+        errors.append(
+            f"{path}: mutable GitHub Action ref is forbidden"
+        )
+
+    return errors
+
+
+def validate_staging_rehearsal_workflow(
+    path: Path,
+) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+
+    required = (
+        "workflow_run:",
+        "Release Image",
+        "types:",
+        "- completed",
+        "actions: read",
+        "group: staging-release-rehearsal",
+        "cancel-in-progress: false",
+        "github.event.workflow_run.conclusion == 'success'",
+        "release-evidence.json.sha256",
+        "release-sbom.cdx.json.sha256",
+        "git merge-base --is-ancestor",
+        "uses: ./.github/workflows/promote.yml",
+        "target_environment: staging",
+        "environment: staging",
+        "KUBECONFIG_B64",
+        "KUBE_CONTEXT",
+        "KUBE_SERVER",
+        "scripts/render_staging_manifests.py",
+        "scripts/validate_kubernetes.sh",
+        "SHA256SUMS",
+        "kubectl config use-context",
+        "creator-revenue-agent-secrets",
+        "migration-job.yaml",
+        "kubectl apply -k staging-kubernetes",
+        "rollout status",
+        "imageID",
+        "staging-rollout-evidence.json",
+    )
+    for token in required:
+        if token not in text:
+            errors.append(
+                f"{path}: missing staging rehearsal invariant: "
+                f"{token}"
             )
 
     if ":latest" in text:
@@ -134,6 +196,14 @@ def main() -> int:
     promotion = Path(".github/workflows/promote.yml")
     if promotion.is_file():
         errors.extend(validate_promotion_workflow(promotion))
+
+    staging = Path(
+        ".github/workflows/staging-release-rehearsal.yml"
+    )
+    if staging.is_file():
+        errors.extend(
+            validate_staging_rehearsal_workflow(staging)
+        )
 
     if errors:
         for error in errors:

@@ -324,6 +324,30 @@ ghcr.io/<owner>/creator-revenue-agent@sha256:<digest>
 Use that same digest for both the Kubernetes migration Job and Deployment. Verify the GitHub build-provenance and SBOM attestations before traffic cutover. See `RELEASE_SECURITY.md`.
 
 
+## Staging release rehearsal
+
+A successful real tag release is automatically rehearsed through the same
+attestation-verified Promotion Gate and then rolled out to the protected
+`staging` Kubernetes environment.
+
+The workflow is:
+
+```text
+.github/workflows/staging-release-rehearsal.yml
+```
+
+It consumes the checksummed release evidence from the triggering
+`Release Image` run, verifies the tag/source commit/image digest binding,
+calls `Verify Release Promotion` as a reusable workflow, derives a
+staging-specific manifest bundle without changing `APP_ENV=production`,
+runs the one-shot migration Job, rolls out the application, and verifies
+the runtime container `imageID` against the attested sha256 digest.
+
+See `STAGING_RELEASE_REHEARSAL.md` for the required GitHub Environment
+variables, kubeconfig secret, namespace/Secret prerequisites, RBAC
+expectations, and emitted evidence.
+
+
 ## Attestation-verified promotion
 
 After `.github/workflows/release.yml` publishes and attests an image, run:
