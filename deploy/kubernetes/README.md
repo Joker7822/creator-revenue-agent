@@ -139,3 +139,10 @@ CI renders the Kustomize base, appends the migration Job, validates native Kuber
 ```text
 scripts/validate_kubernetes.sh
 ```
+
+
+## Attested release digest
+
+The tag release workflow emits `release-image.txt` with the immutable GHCR digest and creates build-provenance plus SBOM attestations for that digest.
+
+Before applying these manifests, replace the placeholder image in both `deployment.yaml` and `migration-job.yaml` with that exact digest. Never rebuild the release image during deployment.

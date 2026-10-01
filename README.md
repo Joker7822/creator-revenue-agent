@@ -682,3 +682,10 @@ CI now blocks releases on Python dependency vulnerabilities, full-history secret
 Dependabot monitors Python, GitHub Actions, and Docker dependencies weekly.
 
 See `SUPPLY_CHAIN.md`.
+
+
+## Release provenance and attestations
+
+Semantic release tags trigger `.github/workflows/release.yml`. The release workflow publishes the production image to GHCR, resolves its immutable SHA-256 digest, scans that exact digest, generates a CycloneDX SBOM, and attaches both GitHub build-provenance and SBOM attestations.
+
+The digest is the deployment identity; release tags are aliases only. See `RELEASE_SECURITY.md`.

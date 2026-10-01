@@ -309,3 +309,16 @@ The job provides:
 - CycloneDX SBOM and SHA-256 checksum artifact
 
 Promote the exact image content that passed these checks. In the target registry, prefer immutable digest promotion plus registry/platform signing and admission verification rather than rebuilding the image separately after CI.
+
+
+## Attested image promotion
+
+For production releases, use the digest emitted by the release workflow rather than rebuilding or deploying a mutable tag.
+
+The release artifact `release-image.txt` contains the authoritative image reference:
+
+```text
+ghcr.io/<owner>/creator-revenue-agent@sha256:<digest>
+```
+
+Use that same digest for both the Kubernetes migration Job and Deployment. Verify the GitHub build-provenance and SBOM attestations before traffic cutover. See `RELEASE_SECURITY.md`.

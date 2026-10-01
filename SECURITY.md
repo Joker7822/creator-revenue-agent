@@ -268,3 +268,14 @@ High-risk workflow actions now use server-configured service identities and role
 - SBOM artifacts include a SHA-256 checksum and are retained as CI artifacts.
 - Dependabot monitors Python, GitHub Actions, and Docker base-image updates.
 - Secret-scan allowlisting is limited to explicit example/placeholder fixtures and must not be expanded to hide real credentials.
+
+
+## Release artifact provenance
+
+- Release images are published by digest and never by `:latest`.
+- The tagged commit must be reachable from `main`.
+- The release workflow reruns the production release gate against PostgreSQL before image publication.
+- The exact pushed digest is rescanned for fixable CRITICAL vulnerabilities.
+- GitHub build-provenance and SBOM attestations are bound to the same image digest.
+- Release evidence includes the source commit, release tag, digest, SBOM checksum, and attestation identifiers.
+- External GitHub Actions are pinned to immutable 40-character commit SHAs and checked by CI.

@@ -116,3 +116,12 @@ EDGE_RATE_LIMIT_MODE=external
 ```
 
 The repository provides an authenticated Prometheus scrape surface using the dedicated `metrics_reader` role. Distributed ingress limiting remains an external infrastructure responsibility and cannot be replaced by per-process counters.
+
+
+## Release provenance
+
+Production image promotion is digest-based. Semantic release tags trigger a dedicated workflow that pushes to GHCR, rescans the exact pushed digest, generates a CycloneDX SBOM, and binds both GitHub build-provenance and SBOM attestations to that digest.
+
+Repository workflows pin external GitHub Actions to full commit SHAs. CI rejects mutable Action refs and missing release-attestation invariants.
+
+The deployed Kubernetes image reference should be the exact attested digest from `release-image.txt`, not a rebuilt image or mutable tag.
