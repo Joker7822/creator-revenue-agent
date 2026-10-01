@@ -373,6 +373,18 @@ class CustomAPIClient:
             json={"reason": reason},
         )
 
+    def create_audit_anchor(self) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/audit/anchors",
+        )
+
+    def verify_audit_anchor(self) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/audit/anchors/verify",
+        )
+
     def get_audit_integrity(self) -> dict[str, Any]:
         return self._request(
             "GET",

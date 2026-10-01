@@ -598,6 +598,40 @@ class AuditEventResponse(BaseModel):
     created_at: datetime
 
 
+class AuditAnchorReceiptResponse(BaseModel):
+    receipt_id: str
+    namespace: str
+    anchor_id: str
+    head_event_id: int | None
+    head_hash: str
+    head_state_hash: str
+    head_hash_key_id: str
+    requested_by: str
+    anchored_at: datetime
+    receipt_key_id: str
+    receipt_signature: str
+
+
+class AuditAnchorVerificationResponse(BaseModel):
+    valid: bool
+    status: Literal[
+        "in_sync",
+        "local_ahead",
+        "rollback_detected",
+        "external_anchor_missing",
+        "local_chain_invalid",
+        "anchor_mismatch",
+    ]
+    namespace: str
+    anchor_id: str | None
+    anchor_event_id: int | None
+    local_event_id: int | None
+    anchor_head_hash: str | None
+    local_head_hash: str
+    anchored_at: datetime | None
+    reason: str | None
+
+
 class AuditIntegrityResponse(BaseModel):
     valid: bool
     checked_events: int

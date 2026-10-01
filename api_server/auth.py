@@ -20,6 +20,7 @@ ALLOWED_ROLES = frozenset({
     "admin",
     "credential_admin",
     "verification_writer",
+    "audit_anchor_operator",
     "reviewer",
     "publisher",
     "experiment_operator",

@@ -458,3 +458,27 @@ The integrity response includes:
 Detected failure classes include event content modification, broken previous-hash links, missing/unknown historical HMAC keys, missing chain state, chain-head mismatch, and chain-state MAC mismatch.
 
 Rows created before HMAC chaining are migrated under `legacy-sha256-v1`.
+
+
+## External audit anchor
+
+```text
+POST /v1/audit/anchors
+GET  /v1/audit/anchors/verify
+```
+
+`POST /v1/audit/anchors` requires `audit_anchor_operator`. It refuses to anchor if the local HMAC audit chain is invalid.
+
+The configured external service receives an idempotent anchor containing:
+
+- namespace
+- deterministic anchor ID
+- head event ID
+- head event hash
+- authenticated chain-state hash
+- audit hash key ID
+- authenticated service subject requesting the anchor
+
+The returned WORM receipt must be signed by a trusted receipt key.
+
+Verification always queries the external service for the latest receipt; it does not treat the local receipt table as authoritative. This allows restoration of the application database to an older internally valid snapshot to be detected when the external anchor is ahead.

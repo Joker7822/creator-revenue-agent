@@ -3,6 +3,10 @@ from datetime import datetime
 
 from fastapi import Depends, FastAPI, Header, Request
 
+from api_server.audit_anchor import (
+    create_audit_anchor,
+    verify_external_audit_anchor,
+)
 from api_server.audit_integrity import verify_audit_chain
 from api_server.auth import (
     ServicePrincipal,
@@ -69,6 +73,8 @@ from api_server.schemas import (
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     ApprovalResponse,
+    AuditAnchorReceiptResponse,
+    AuditAnchorVerificationResponse,
     AuditEventResponse,
     AuditIntegrityResponse,
     ContentGenerateRequest,
@@ -141,7 +147,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.19.0",
+    version="0.20.0",
     lifespan=lifespan,
 )
 
@@ -1002,6 +1008,32 @@ def rollback_get(
             session,
             rollback_id=rollback_id,
         )
+
+
+@app.post(
+    "/v1/audit/anchors",
+    response_model=AuditAnchorReceiptResponse,
+)
+def audit_anchor_create(
+    principal: ServicePrincipal = Depends(
+        require_roles("audit_anchor_operator")
+    ),
+) -> AuditAnchorReceiptResponse:
+    with SessionLocal() as session:
+        return create_audit_anchor(
+            session,
+            actor=principal.subject,
+        )
+
+
+@app.get(
+    "/v1/audit/anchors/verify",
+    response_model=AuditAnchorVerificationResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def audit_anchor_verify() -> AuditAnchorVerificationResponse:
+    with SessionLocal() as session:
+        return verify_external_audit_anchor(session)
 
 
 @app.get(

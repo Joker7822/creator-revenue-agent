@@ -146,3 +146,16 @@ High-risk workflow actions now use server-configured service identities and role
 - Keep historical audit HMAC keys available for verification after rotation; removing one makes historical events using it unverifiable.
 - This design detects database-only tampering when the attacker does not possess the audit HMAC keys.
 - It does not by itself detect restoration of the entire database to an older previously valid snapshot. Use an external append-only/WORM anchor for rollback detection and stronger non-repudiation.
+
+
+## External / WORM audit anchoring
+
+- Audit-chain heads can be persisted to a separate append-only/WORM service.
+- Anchor creation requires the dedicated `audit_anchor_operator` role.
+- The anchor service is authenticated with a separate bearer credential.
+- Returned receipts require an HMAC signature from a configured receipt-verification key.
+- Receipt verification keys are independent of audit-event HMAC keys.
+- The external latest receipt is authoritative for rollback detection; the local receipt table is not.
+- A local chain that is behind the external anchor is reported as `rollback_detected` even when the restored local chain is internally valid.
+- Keep historical receipt verification keys available for as long as their receipts may be returned.
+- For strongest guarantees, the external service should use independent credentials, storage administration, backups, retention locks, and deletion controls from the primary application database.

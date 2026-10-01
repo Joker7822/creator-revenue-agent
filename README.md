@@ -505,3 +505,28 @@ GET /v1/audit/integrity
 Existing audit rows predating this feature are migrated as `legacy-sha256-v1`; new rows use the configured HMAC key.
 
 Retired audit verification keys must remain available if historical HMAC-protected events used them. A database rollback to an earlier internally consistent snapshot is outside the guarantees of an in-database chain and should be addressed with an external/WORM anchor.
+
+
+## External / WORM audit anchors
+
+The audit chain can now be anchored outside the application database.
+
+```text
+POST /v1/audit/anchors
+GET  /v1/audit/anchors/verify
+```
+
+Anchor creation requires the `audit_anchor_operator` role.
+
+The application sends the current authenticated audit-chain head to a configured append-only/WORM service. The external service returns a signed receipt. Receipt signatures are verified using `AUDIT_ANCHOR_RECEIPT_KEYS_JSON` before a receipt is accepted.
+
+Rollback verification compares the latest external anchor with the local audit chain:
+
+- external and local heads equal -> `in_sync`
+- local chain extends the anchored prefix -> `local_ahead`
+- external anchor is ahead of local DB -> `rollback_detected`
+- anchored event/hash no longer matches local history -> invalid
+
+Local `audit_anchor_receipts` rows are operational records only. The external WORM service is the rollback-detection source of truth.
+
+See `AUDIT_ANCHOR.md` for the proprietary anchor-service contract and scheduling guidance.

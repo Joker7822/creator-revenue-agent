@@ -80,3 +80,8 @@ Revision `20261001_0004` adds `verification_webhook_events.key_id` and its index
 Revision `20261001_0005` adds `previous_hash`, `hash_key_id`, and `event_hash` to `audit_events`, plus the authenticated `audit_chain_state` head.
 
 Existing audit rows are deterministically linked under `legacy-sha256-v1`. Events written after deployment use the active HMAC key configured outside the database.
+
+
+## External audit-anchor revision
+
+Revision `20261001_0006` adds `audit_anchor_receipts`. These rows retain external receipt metadata for operations and troubleshooting but are not the security source of truth; rollback verification queries the external WORM service.

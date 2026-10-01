@@ -661,6 +661,69 @@ class IssuedCredentialRecord(Base):
     )
 
 
+class AuditAnchorReceiptRecord(Base):
+    __tablename__ = "audit_anchor_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "anchor_id",
+            name="uq_audit_anchor_receipts_anchor_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    anchor_id: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+    )
+    namespace: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+    head_event_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+    head_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    head_state_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    head_hash_key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    requested_by: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    remote_receipt_id: Mapped[str] = mapped_column(
+        String(200),
+        nullable=False,
+    )
+    remote_receipt_key_id: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+    remote_receipt_signature: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    anchored_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditChainState(Base):
     __tablename__ = "audit_chain_state"
 

@@ -101,6 +101,32 @@ os.environ.setdefault(
     "test-audit-2026-10",
 )
 os.environ.setdefault(
+    "AUDIT_ANCHOR_BASE_URL",
+    "https://audit-anchor.test",
+)
+os.environ.setdefault(
+    "AUDIT_ANCHOR_TOKEN",
+    "test-audit-anchor-service-token",
+)
+os.environ.setdefault(
+    "AUDIT_ANCHOR_NAMESPACE",
+    "creator-revenue-agent-test",
+)
+os.environ.setdefault(
+    "AUDIT_ANCHOR_RECEIPT_KEYS_JSON",
+    json.dumps(
+        {
+            "test-anchor-receipt-2026-10": (
+                "anchor-receipt-secret-000000000000000001"
+            )
+        }
+    ),
+)
+os.environ.setdefault(
+    "AUDIT_ANCHOR_TIMEOUT_SECONDS",
+    "5",
+)
+os.environ.setdefault(
     "SERVICE_IDENTITIES_JSON",
     json.dumps(
         {
@@ -115,6 +141,10 @@ os.environ.setdefault(
             "verification-service": {
                 "token": "verification-token",
                 "roles": ["verification_writer"],
+            },
+            "audit-anchor-service": {
+                "token": "audit-anchor-token",
+                "roles": ["audit_anchor_operator"],
             },
             "reviewer-service": {
                 "token": "reviewer-token",
