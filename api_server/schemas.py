@@ -382,6 +382,46 @@ class ExperimentResultReviewResponse(BaseModel):
     created_at: datetime
 
 
+class ChangeSetCreateRequest(BaseModel):
+    review_id: str = Field(min_length=1, max_length=128)
+    created_by: str = Field(min_length=1, max_length=120)
+
+
+class ChangeSetDecisionRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ChangeSetResponse(BaseModel):
+    change_set_id: str
+    review_id: str
+    experiment_id: str
+    product_id: str
+    change_type: str
+    status: str
+    expected: dict[str, Any]
+    proposed: dict[str, Any]
+    created_by: str
+    approver: str | None
+    approval_reason: str | None
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class RolloutApplyRequest(BaseModel):
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class RolloutResponse(BaseModel):
+    rollout_id: str
+    change_set_id: str
+    status: str
+    actor: str
+    before: dict[str, Any]
+    after: dict[str, Any]
+    applied_at: datetime
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

@@ -232,3 +232,25 @@ Review requires a completed experiment and persists the statistical snapshot use
 When `POST /v1/policy/evaluate` includes `job_id`, the server evaluates the job's persisted verification facts. Request fields such as `creator_age`, `age_verified`, and consent booleans are not trusted to override the job.
 
 For `POST /v1/approvals`, `required` is only a request hint. If server configuration has `REQUIRE_HUMAN_REVIEW=true`, the effective value is always true and the initial status is `pending_review`.
+
+
+## Change Set APIs
+
+```text
+POST /v1/change-sets
+GET  /v1/change-sets/{change_set_id}
+POST /v1/change-sets/{change_set_id}/approve
+POST /v1/change-sets/{change_set_id}/reject
+POST /v1/change-sets/{change_set_id}/apply
+GET  /v1/rollouts/{rollout_id}
+```
+
+Change-set creation requires a persisted experiment review whose decision is `variant_preferred`.
+
+The first executable change type is `product_price`, derived from a completed price-test experiment. The server reconstructs expected and proposed values from the experiment plan; callers cannot submit arbitrary production values.
+
+Approval uses separation of duties: the approver cannot be the experiment-result reviewer or the change-set creator.
+
+Apply uses optimistic concurrency. If the live product currency or price differs from the expected control state recorded in the change set, the API returns HTTP 409 and makes no change.
+
+Rollout application is idempotent per change set.

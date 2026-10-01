@@ -242,3 +242,36 @@ A review stores a statistics snapshot but does not mutate product price, content
 For persisted jobs, policy evaluation uses the verification facts already stored with the job. Caller-supplied age or consent booleans on a `job_id` policy request cannot upgrade the stored verification state.
 
 When `REQUIRE_HUMAN_REVIEW=true`, an approval request cannot disable review with `required=false`. The server derives the effective requirement and keeps the approval in `pending_review` until an explicit approve action is recorded.
+
+
+## Change Set and Rollout
+
+A statistically reviewed experiment does not directly modify production.
+
+For the first rollout-capable MVP, only approved price-test variants are executable:
+
+```text
+completed experiment
+      |
+variant_preferred review
+      |
+change set: pending_approval
+      |
+separate approver
+      |
+approved
+      |
+optimistic state check
+      |
+rollout applied
+```
+
+Safety rules:
+
+- only `variant_preferred` reviews can produce a change set
+- only price-test experiments are executable in this version
+- proposed price movement is revalidated to stay within 10%
+- the change-set approver must differ from both the experiment-result reviewer and the change-set creator
+- apply checks that the live product price still matches the experiment control value
+- duplicate apply calls return the same rollout record
+- creative and posting-time recommendations remain non-executable until separate production adapters exist

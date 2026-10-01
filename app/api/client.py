@@ -242,6 +242,46 @@ class CustomAPIClient:
             },
         )
 
+    def create_change_set(
+        self,
+        *,
+        review_id: str,
+        created_by: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/change-sets",
+            json={
+                "review_id": review_id,
+                "created_by": created_by,
+            },
+        )
+
+    def approve_change_set(
+        self,
+        change_set_id: str,
+        *,
+        actor: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/change-sets/{change_set_id}/approve",
+            json={"actor": actor, "reason": reason},
+        )
+
+    def apply_change_set(
+        self,
+        change_set_id: str,
+        *,
+        actor: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/change-sets/{change_set_id}/apply",
+            json={"actor": actor},
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,

@@ -25,6 +25,13 @@ from api_server.optimizer import (
     decide_optimization_proposal,
     get_optimization_proposal,
 )
+from api_server.rollouts import (
+    apply_change_set,
+    create_change_set,
+    decide_change_set,
+    get_change_set,
+    get_rollout,
+)
 from api_server.repository import (
     create_approval,
     create_job,
@@ -51,6 +58,9 @@ from api_server.schemas import (
     AuditEventResponse,
     ContentGenerateRequest,
     ContentGenerateResponse,
+    ChangeSetCreateRequest,
+    ChangeSetDecisionRequest,
+    ChangeSetResponse,
     ExperimentActorRequest,
     ExperimentAssignmentCreateRequest,
     ExperimentAssignmentResponse,
@@ -77,6 +87,8 @@ from api_server.schemas import (
     PublicationResponse,
     PublishRequest,
     RevenueResponse,
+    RolloutApplyRequest,
+    RolloutResponse,
     TransactionCreateRequest,
     TransactionResponse,
 )
@@ -87,7 +99,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.10.0",
+    version="0.11.0",
 )
 
 
@@ -583,6 +595,101 @@ def experiment_review_get(
             session,
             experiment_id=experiment_id,
         )
+
+
+@app.post(
+    "/v1/change-sets",
+    response_model=ChangeSetResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def change_set_create(
+    request: ChangeSetCreateRequest,
+) -> ChangeSetResponse:
+    with SessionLocal() as session:
+        return create_change_set(
+            session,
+            review_id=request.review_id,
+            created_by=request.created_by,
+        )
+
+
+@app.get(
+    "/v1/change-sets/{change_set_id}",
+    response_model=ChangeSetResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def change_set_get(
+    change_set_id: str,
+) -> ChangeSetResponse:
+    with SessionLocal() as session:
+        return get_change_set(session, change_set_id)
+
+
+@app.post(
+    "/v1/change-sets/{change_set_id}/approve",
+    response_model=ChangeSetResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def change_set_approve(
+    change_set_id: str,
+    request: ChangeSetDecisionRequest,
+) -> ChangeSetResponse:
+    with SessionLocal() as session:
+        return decide_change_set(
+            session,
+            change_set_id=change_set_id,
+            decision="approved",
+            actor=request.actor,
+            reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/change-sets/{change_set_id}/reject",
+    response_model=ChangeSetResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def change_set_reject(
+    change_set_id: str,
+    request: ChangeSetDecisionRequest,
+) -> ChangeSetResponse:
+    with SessionLocal() as session:
+        return decide_change_set(
+            session,
+            change_set_id=change_set_id,
+            decision="rejected",
+            actor=request.actor,
+            reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/change-sets/{change_set_id}/apply",
+    response_model=RolloutResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def change_set_apply(
+    change_set_id: str,
+    request: RolloutApplyRequest,
+) -> RolloutResponse:
+    with SessionLocal() as session:
+        return apply_change_set(
+            session,
+            change_set_id=change_set_id,
+            actor=request.actor,
+        )
+
+
+@app.get(
+    "/v1/rollouts/{rollout_id}",
+    response_model=RolloutResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def rollout_get(
+    rollout_id: str,
+) -> RolloutResponse:
+    with SessionLocal() as session:
+        return get_rollout(session, rollout_id)
 
 
 @app.get(

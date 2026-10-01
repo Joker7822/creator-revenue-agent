@@ -43,3 +43,13 @@ The starter uses bearer authentication for simplicity. Production deployments sh
 - A caller cannot upgrade an existing job by resubmitting more permissive age or consent booleans.
 - `REQUIRE_HUMAN_REVIEW=true` is enforced server-side and cannot be bypassed with `required=false`.
 - Publication continues to require a persisted allowed policy result and an approved approval record.
+
+
+## Production change controls
+
+- Experiment reviews never mutate production directly.
+- Change sets are derived server-side from approved experiment evidence.
+- Rollout approval requires a distinct actor from the result reviewer and change-set creator.
+- Rollout apply performs an optimistic state check before mutation.
+- Price changes are capped to the experiment's 10% safety bound.
+- Current actor strings are still caller-asserted behind service authentication; production should derive actors from cryptographically authenticated identities and authorization roles.

@@ -393,6 +393,85 @@ class ExperimentResultReviewRecord(Base):
     )
 
 
+class ChangeSetRecord(Base):
+    __tablename__ = "change_sets"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_id",
+            name="uq_change_set_review",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    review_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiment_result_reviews.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    experiment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    change_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="pending_approval",
+        index=True,
+    )
+    expected_json: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(120), nullable=False)
+    approver: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    approval_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
+class RolloutRecord(Base):
+    __tablename__ = "rollouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_set_id",
+            name="uq_rollout_change_set",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    change_set_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("change_sets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="applied",
+        index=True,
+    )
+    actor: Mapped[str] = mapped_column(String(120), nullable=False)
+    before_json: Mapped[str] = mapped_column(Text, nullable=False)
+    after_json: Mapped[str] = mapped_column(Text, nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
