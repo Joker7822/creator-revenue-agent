@@ -13,6 +13,14 @@ class ContentGenerateRequest(BaseModel):
     consent_verified: bool = False
     depicts_real_person: bool = False
     real_person_consent_verified: bool = False
+    creator_ref: str | None = Field(default=None, min_length=1, max_length=128)
+    age_verification_id: str | None = Field(default=None, min_length=1, max_length=128)
+    consent_verification_id: str | None = Field(default=None, min_length=1, max_length=128)
+    real_person_consent_verification_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
 
 
 class ContentGenerateResponse(BaseModel):
@@ -25,6 +33,10 @@ class ContentGenerateResponse(BaseModel):
     consent_verified: bool
     depicts_real_person: bool
     real_person_consent_verified: bool
+    creator_ref: str | None = None
+    age_verification_id: str | None = None
+    consent_verification_id: str | None = None
+    real_person_consent_verification_id: str | None = None
     asset_ref: str | None = None
 
 
@@ -41,6 +53,39 @@ class PolicyEvaluateRequest(BaseModel):
 class PolicyEvaluateResponse(BaseModel):
     allowed: bool
     reasons: list[str]
+
+
+class VerificationCreateRequest(BaseModel):
+    subject_ref: str = Field(min_length=1, max_length=128)
+    kind: Literal[
+        "age",
+        "creator_consent",
+        "real_person_consent",
+    ]
+    source: str = Field(min_length=1, max_length=120)
+    source_record_ref: str | None = Field(default=None, max_length=200)
+    age_years: int | None = Field(default=None, ge=0, le=130)
+    expires_at: datetime | None = None
+
+
+class VerificationRevokeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class VerificationResponse(BaseModel):
+    verification_id: str
+    subject_ref: str
+    kind: str
+    status: str
+    source: str
+    source_record_ref: str | None
+    age_years: int | None
+    created_by: str
+    created_at: datetime
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    revoked_by: str | None
+    revoke_reason: str | None
 
 
 class ApprovalCreateRequest(BaseModel):

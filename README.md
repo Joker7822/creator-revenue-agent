@@ -363,3 +363,39 @@ alembic current
 The API validates the Alembic revision during application lifespan startup and fails fast if the database is behind.
 
 The baseline migration can adopt databases created by the earlier `create_all()` implementation without dropping existing tables. See `DATABASE_MIGRATIONS.md`.
+
+
+## Trusted Verification Registry
+
+Age and consent can now be sourced from server-managed verification records instead of caller-supplied booleans.
+
+```text
+Verification Provider
+        |
+verification_writer service
+        |
+Verification Record
+  age / creator_consent / real_person_consent
+        |
+Job references record IDs
+        |
+Policy
+        |
+Publish-time recheck
+```
+
+Endpoints:
+
+```text
+POST /v1/verifications
+GET  /v1/verifications/{verification_id}
+POST /v1/verifications/{verification_id}/revoke
+```
+
+With `REQUIRE_TRUSTED_VERIFICATION=true`, new jobs must provide a `creator_ref`, an active age verification record, and an active creator-consent verification record. Real-person depictions additionally require a real-person-consent record.
+
+Caller-provided `age_verified`, `consent_verified`, and `creator_age` values are replaced by the trusted record state when verification references are present.
+
+Revoking a verification record invalidates the stored policy state of referencing jobs. Publication also rechecks the current record state immediately before publishing.
+
+The registry stores provider/source metadata and opaque external record references only. Raw identity documents and consent evidence remain outside this repository and database.

@@ -349,3 +349,33 @@ backup
 ```
 
 The API performs a startup revision check and refuses to serve with a database revision that is not the current Alembic head.
+
+
+## Trusted verification
+
+```text
+POST /v1/verifications
+GET  /v1/verifications/{verification_id}
+POST /v1/verifications/{verification_id}/revoke
+```
+
+Creation and revocation require the `verification_writer` role.
+
+Verification kinds:
+
+- `age` — requires `age_years`
+- `creator_consent`
+- `real_person_consent`
+
+A verification is usable only while its status is active, it is not revoked, it is not expired, its kind matches the requested use, and its `subject_ref` matches the job creator reference.
+
+`POST /v1/content/generate` accepts:
+
+- `creator_ref`
+- `age_verification_id`
+- `consent_verification_id`
+- `real_person_consent_verification_id`
+
+When trusted verification is required, policy and publication derive verification state from these server-managed records. Request booleans cannot upgrade the record state.
+
+Revocation marks referencing jobs' persisted policy result as not allowed. Publish performs an additional current-state verification check, so an approval obtained before consent revocation cannot be used to publish afterward.

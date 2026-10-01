@@ -63,6 +63,37 @@ class CustomAPIClient:
             )
         return data
 
+    def create_verification(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/verifications",
+            json=payload,
+        )
+
+    def get_verification(
+        self,
+        verification_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/verifications/{verification_id}",
+        )
+
+    def revoke_verification(
+        self,
+        verification_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/verifications/{verification_id}/revoke",
+            json={"reason": reason},
+        )
+
     def generate_content(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/content/generate", json=payload)
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 ALLOWED_ROLES = frozenset({
     "admin",
     "credential_admin",
+    "verification_writer",
     "reviewer",
     "publisher",
     "experiment_operator",

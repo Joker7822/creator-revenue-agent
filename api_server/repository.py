@@ -82,6 +82,12 @@ def create_job(
         consent_verified=response.consent_verified,
         depicts_real_person=response.depicts_real_person,
         real_person_consent_verified=response.real_person_consent_verified,
+        creator_ref=response.creator_ref,
+        age_verification_id=response.age_verification_id,
+        consent_verification_id=response.consent_verification_id,
+        real_person_consent_verification_id=(
+            response.real_person_consent_verification_id
+        ),
     )
     session.add(job)
     add_audit(session, job_id=job.id, event_type="job_created", actor="system")
@@ -103,15 +109,11 @@ def get_job_policy_request(
             detail="job not found",
         )
 
-    return PolicyEvaluateRequest(
-        job_id=job.id,
-        creator_age=job.creator_age,
-        age_verified=job.age_verified,
-        consent_verified=job.consent_verified,
-        depicts_real_person=job.depicts_real_person,
-        real_person_consent_verified=(
-            job.real_person_consent_verified
-        ),
+    from api_server.verification import policy_request_for_job
+
+    return policy_request_for_job(
+        session,
+        job=job,
         asset_ref=asset_ref,
     )
 
@@ -286,6 +288,10 @@ def publish_job(
         raise HTTPException(status_code=404, detail="job not found")
     if job.policy_allowed is not True:
         raise HTTPException(status_code=409, detail="policy approval required")
+
+    from api_server.verification import assert_job_verifications_current
+
+    assert_job_verifications_current(session, job)
 
     approval = session.get(ApprovalRecord, job_id)
     if approval is None or approval.status != "approved":

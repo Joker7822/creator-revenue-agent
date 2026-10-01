@@ -36,6 +36,12 @@ def generate_campaign_metadata(
         real_person_consent_verified=(
             request.real_person_consent_verified
         ),
+        creator_ref=request.creator_ref,
+        age_verification_id=request.age_verification_id,
+        consent_verification_id=request.consent_verification_id,
+        real_person_consent_verification_id=(
+            request.real_person_consent_verification_id
+        ),
         asset_ref=None,
     )
 

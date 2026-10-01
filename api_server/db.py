@@ -68,6 +68,29 @@ class JobRecord(Base):
         Boolean,
         default=False,
     )
+    creator_ref: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        index=True,
+    )
+    age_verification_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("verification_records.id"),
+        nullable=True,
+        index=True,
+    )
+    consent_verification_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("verification_records.id"),
+        nullable=True,
+        index=True,
+    )
+    real_person_consent_verification_id: Mapped[str | None] = mapped_column(
+        String(128),
+        ForeignKey("verification_records.id"),
+        nullable=True,
+        index=True,
+    )
 
     policy_allowed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     policy_reasons_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -81,6 +104,54 @@ class JobRecord(Base):
         default=utcnow,
         onupdate=utcnow,
     )
+
+
+class VerificationRecord(Base):
+    __tablename__ = "verification_records"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    subject_ref: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="active",
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_record_ref: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+    )
+    age_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    revoked_by: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ApprovalRecord(Base):

@@ -50,3 +50,16 @@ alembic upgrade head
 before serving traffic.
 
 For production, back up the database before migrations and run migrations once as a release job rather than concurrently in every application replica.
+
+
+## Trusted verification revision
+
+Revision `20261001_0002` adds:
+
+- `verification_records`
+- `jobs.creator_ref`
+- `jobs.age_verification_id`
+- `jobs.consent_verification_id`
+- `jobs.real_person_consent_verification_id`
+
+The new job columns are nullable so legacy rows remain readable. Production policy should enable `REQUIRE_TRUSTED_VERIFICATION=true` for newly created jobs.

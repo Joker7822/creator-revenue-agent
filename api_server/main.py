@@ -112,8 +112,17 @@ from api_server.schemas import (
     SigningKeyStatusResponse,
     TransactionCreateRequest,
     TransactionResponse,
+    VerificationCreateRequest,
+    VerificationResponse,
+    VerificationRevokeRequest,
 )
 from api_server.services import evaluate_policy, generate_campaign_metadata
+from api_server.verification import (
+    create_verification,
+    get_verification,
+    resolve_content_request,
+    revoke_verification,
+)
 
 
 @asynccontextmanager
@@ -124,7 +133,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.15.0",
+    version="0.16.0",
     lifespan=lifespan,
 )
 
@@ -206,6 +215,61 @@ def signing_key_status(
 
 
 @app.post(
+    "/v1/verifications",
+    response_model=VerificationResponse,
+)
+def verification_create(
+    request: VerificationCreateRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("verification_writer")
+    ),
+) -> VerificationResponse:
+    with SessionLocal() as session:
+        return create_verification(
+            session,
+            subject_ref=request.subject_ref,
+            kind=request.kind,
+            source=request.source,
+            source_record_ref=request.source_record_ref,
+            age_years=request.age_years,
+            expires_at=request.expires_at,
+            created_by=principal.subject,
+        )
+
+
+@app.get(
+    "/v1/verifications/{verification_id}",
+    response_model=VerificationResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def verification_get(
+    verification_id: str,
+) -> VerificationResponse:
+    with SessionLocal() as session:
+        return get_verification(session, verification_id)
+
+
+@app.post(
+    "/v1/verifications/{verification_id}/revoke",
+    response_model=VerificationResponse,
+)
+def verification_revoke(
+    verification_id: str,
+    request: VerificationRevokeRequest,
+    principal: ServicePrincipal = Depends(
+        require_roles("verification_writer")
+    ),
+) -> VerificationResponse:
+    with SessionLocal() as session:
+        return revoke_verification(
+            session,
+            verification_id=verification_id,
+            actor=principal.subject,
+            reason=request.reason,
+        )
+
+
+@app.post(
     "/v1/content/generate",
     response_model=ContentGenerateResponse,
     dependencies=[Depends(require_service_token)],
@@ -213,10 +277,20 @@ def signing_key_status(
 def content_generate(
     request: ContentGenerateRequest,
 ) -> ContentGenerateResponse:
-    response = generate_campaign_metadata(request)
     with SessionLocal() as session:
-        create_job(session, request, response)
-    return response
+        trusted_request = resolve_content_request(
+            session,
+            request,
+        )
+        response = generate_campaign_metadata(
+            trusted_request
+        )
+        create_job(
+            session,
+            trusted_request,
+            response,
+        )
+        return response
 
 
 @app.post(

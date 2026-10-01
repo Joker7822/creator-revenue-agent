@@ -56,6 +56,10 @@ os.environ.setdefault(
     "true",
 )
 os.environ.setdefault(
+    "REQUIRE_TRUSTED_VERIFICATION",
+    "false",
+)
+os.environ.setdefault(
     "SERVICE_IDENTITIES_JSON",
     json.dumps(
         {
@@ -66,6 +70,10 @@ os.environ.setdefault(
             "credential-admin-service": {
                 "token": "credential-admin-token",
                 "roles": ["credential_admin"],
+            },
+            "verification-service": {
+                "token": "verification-token",
+                "roles": ["verification_writer"],
             },
             "reviewer-service": {
                 "token": "reviewer-token",
