@@ -11,6 +11,28 @@ on:
         description: Immutable GHCR image reference with sha256 digest
         required: true
         type: string
+      target_environment:
+        description: Promotion environment (manual dispatch is production only)
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Semantic release tag produced by release.yml
+        required: true
+        type: string
+      image_ref:
+        description: Immutable GHCR image reference with sha256 digest
+        required: true
+        type: string
+      target_environment:
+        description: Protected environment for the promotion gate
+        required: false
+        default: production
+        type: string
 
 permissions:
   contents: read
@@ -18,19 +40,33 @@ permissions:
   attestations: read
 
 concurrency:
-  group: production-promotion
+  group: promotion-${{ inputs.target_environment }}
   cancel-in-progress: false
 
 jobs:
   verify-and-render:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: production
+    environment: ${{ inputs.target_environment }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+
+      - name: Validate promotion target
+        shell: bash
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_ENVIRONMENT" in
+            production|staging) ;;
+            *)
+              echo "unsupported promotion environment: $TARGET_ENVIRONMENT" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Require protected main workflow ref
         shell: bash
@@ -51,7 +87,12 @@ jobs:
           IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
           IMAGE_REF="${INPUT_IMAGE_REF,,}"
 
-          python scripts/render_release_manifests.py             --image-ref "$IMAGE_REF"             --expected-image "$IMAGE_NAME"             --release-tag "$RELEASE_TAG"             --source-commit "$SOURCE_COMMIT"             --output-dir verified-kubernetes
+          python scripts/render_release_manifests.py \
+            --image-ref "$IMAGE_REF" \
+            --expected-image "$IMAGE_NAME" \
+            --release-tag "$RELEASE_TAG" \
+            --source-commit "$SOURCE_COMMIT" \
+            --output-dir verified-kubernetes
 
           {
             echo "RELEASE_TAG=$RELEASE_TAG"
@@ -71,7 +112,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh attestation verify "oci://$IMAGE_REF"             --repo "$GITHUB_REPOSITORY"             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"             --source-ref "refs/tags/$RELEASE_TAG"             --source-digest "$SOURCE_COMMIT"             --deny-self-hosted-runners             --format json             > provenance-verification.json
+          gh attestation verify "oci://$IMAGE_REF" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/tags/$RELEASE_TAG" \
+            --source-digest "$SOURCE_COMMIT" \
+            --deny-self-hosted-runners \
+            --format json \
+            > provenance-verification.json
           test -s provenance-verification.json
 
       - name: Verify GitHub CycloneDX SBOM attestation
@@ -79,7 +127,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh attestation verify "oci://$IMAGE_REF"             --repo "$GITHUB_REPOSITORY"             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"             --source-ref "refs/tags/$RELEASE_TAG"             --source-digest "$SOURCE_COMMIT"             --deny-self-hosted-runners             --predicate-type "https://cyclonedx.org/bom"             --format json             > sbom-verification.json
+          gh attestation verify "oci://$IMAGE_REF" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/tags/$RELEASE_TAG" \
+            --source-digest "$SOURCE_COMMIT" \
+            --deny-self-hosted-runners \
+            --predicate-type "https://cyclonedx.org/bom" \
+            --format json \
+            > sbom-verification.json
           test -s sbom-verification.json
 
       - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
@@ -89,22 +145,36 @@ jobs:
       - name: Render digest-pinned Kubernetes deployment
         run: |
           set -euo pipefail
-          kubectl kustomize verified-kubernetes             > verified-application.yaml
+          kubectl kustomize verified-kubernetes \
+            > verified-application.yaml
           printf '\n---\n' >> verified-application.yaml
-          cat verified-kubernetes/migration-job.yaml             >> verified-application.yaml
+          cat verified-kubernetes/migration-job.yaml \
+            >> verified-application.yaml
 
-          if grep -R -nE             'ghcr\.io/[^[:space:]]+:[^[:space:]]+'             verified-kubernetes             --include='*.yaml'; then
+          if grep -R -nE \
+            'ghcr\.io/[^[:space:]]+:[^[:space:]]+' \
+            verified-kubernetes \
+            --include='*.yaml'; then
             echo "mutable container image reference detected" >&2
             exit 1
           fi
 
-          grep -R -F "$IMAGE_REF"             verified-kubernetes/deployment.yaml             verified-kubernetes/migration-job.yaml
+          grep -R -F "$IMAGE_REF" \
+            verified-kubernetes/deployment.yaml \
+            verified-kubernetes/migration-job.yaml
 
-          bash scripts/validate_kubernetes.sh             verified-application.yaml
+          bash scripts/validate_kubernetes.sh \
+            verified-application.yaml
 
       - name: Validate Kubernetes schemas
         run: |
-          docker run --rm             -v "$PWD:/work"             ghcr.io/yannh/kubeconform:v0.6.7             -strict             -summary             -kubernetes-version 1.31.0             /work/verified-application.yaml
+          docker run --rm \
+            -v "$PWD:/work" \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict \
+            -summary \
+            -kubernetes-version 1.31.0 \
+            /work/verified-application.yaml
 
       - name: Write promotion evidence
         run: |
@@ -149,10 +219,14 @@ jobs:
               encoding="utf-8",
           )
           PY
-          sha256sum promotion-evidence.json             > promotion-evidence.json.sha256
-          sha256sum provenance-verification.json             > provenance-verification.json.sha256
-          sha256sum sbom-verification.json             > sbom-verification.json.sha256
-          sha256sum verified-application.yaml             > verified-application.yaml.sha256
+          sha256sum promotion-evidence.json \
+            > promotion-evidence.json.sha256
+          sha256sum provenance-verification.json \
+            > provenance-verification.json.sha256
+          sha256sum sbom-verification.json \
+            > sbom-verification.json.sha256
+          sha256sum verified-application.yaml \
+            > verified-application.yaml.sha256
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
