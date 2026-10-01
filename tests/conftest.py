@@ -127,6 +127,18 @@ os.environ.setdefault(
     "5",
 )
 os.environ.setdefault(
+    "AUDIT_ANCHOR_MAX_AGE_SECONDS",
+    "900",
+)
+os.environ.setdefault(
+    "AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS",
+    "100",
+)
+os.environ.setdefault(
+    "ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT",
+    "false",
+)
+os.environ.setdefault(
     "SERVICE_IDENTITIES_JSON",
     json.dumps(
         {

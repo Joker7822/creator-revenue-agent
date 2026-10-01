@@ -373,6 +373,20 @@ class CustomAPIClient:
             json={"reason": reason},
         )
 
+    def get_readiness(self) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/ready",
+        )
+
+    def get_audit_anchor_freshness(
+        self,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/audit/anchors/freshness",
+        )
+
     def create_audit_anchor(self) -> dict[str, Any]:
         return self._request(
             "POST",

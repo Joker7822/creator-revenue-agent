@@ -159,3 +159,13 @@ High-risk workflow actions now use server-configured service identities and role
 - A local chain that is behind the external anchor is reported as `rollback_detected` even when the restored local chain is internally valid.
 - Keep historical receipt verification keys available for as long as their receipts may be returned.
 - For strongest guarantees, the external service should use independent credentials, storage administration, backups, retention locks, and deletion controls from the primary application database.
+
+
+## Production readiness and rollout freshness gate
+
+- Production readiness fails closed when the database revision is stale, JWT authentication is not the active service mode, trusted verification is disabled, webhook key-ID enforcement is disabled, audit HMAC configuration is invalid, the audit chain is invalid, or the external anchor is not fresh.
+- Anchor freshness is constrained by both elapsed time and the count of local audit events not yet represented by the external anchor.
+- Production should keep `ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true`.
+- The rollout gate executes before changing product state.
+- A missing, stale, mismatched, or rollback-indicating external anchor blocks rollout with HTTP 409.
+- The readiness endpoint does not return secret values.

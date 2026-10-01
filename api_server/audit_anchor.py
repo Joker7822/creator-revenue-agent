@@ -24,6 +24,7 @@ from api_server.db import (
     AuditEvent,
 )
 from api_server.schemas import (
+    AuditAnchorFreshnessResponse,
     AuditAnchorReceiptResponse,
     AuditAnchorVerificationResponse,
 )
@@ -63,6 +64,53 @@ def _namespace() -> str:
             detail="audit anchor namespace is invalid",
         )
     return value
+
+
+def _max_anchor_age_seconds() -> int:
+    raw = os.getenv(
+        "AUDIT_ANCHOR_MAX_AGE_SECONDS",
+        "900",
+    )
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="audit anchor max age is invalid",
+        ) from exc
+    if value < 60 or value > 86400:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="audit anchor max age is invalid",
+        )
+    return value
+
+
+def _max_unanchored_events() -> int:
+    raw = os.getenv(
+        "AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS",
+        "100",
+    )
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="audit anchor event gap is invalid",
+        ) from exc
+    if value < 0 or value > 100000:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="audit anchor event gap is invalid",
+        )
+    return value
+
+
+def _enforce_rollout_freshness() -> bool:
+    return os.getenv(
+        "ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT",
+        "true",
+    ).lower() in {"1", "true", "yes", "on"}
 
 
 def _timeout_seconds() -> float:
@@ -501,3 +549,129 @@ def verify_external_audit_anchor(
         anchored_at=receipt.anchored_at,
         reason=None,
     )
+
+
+
+def audit_anchor_freshness(
+    session: Session,
+) -> AuditAnchorFreshnessResponse:
+    verification = verify_external_audit_anchor(session)
+    max_age = _max_anchor_age_seconds()
+    max_events = _max_unanchored_events()
+
+    local_position = verification.local_event_id or 0
+    anchor_position = verification.anchor_event_id or 0
+    unanchored_events = max(
+        0,
+        local_position - anchor_position,
+    )
+
+    age_seconds: int | None = None
+    if verification.anchored_at is not None:
+        anchored_at = verification.anchored_at
+        if anchored_at.tzinfo is None:
+            anchored_at = anchored_at.replace(
+                tzinfo=timezone.utc
+            )
+        delta = datetime.now(timezone.utc) - anchored_at
+        age_seconds = int(delta.total_seconds())
+        if age_seconds < -300:
+            return AuditAnchorFreshnessResponse(
+                fresh=False,
+                verification_status=verification.status,
+                anchor_event_id=verification.anchor_event_id,
+                local_event_id=verification.local_event_id,
+                unanchored_events=unanchored_events,
+                anchored_at=verification.anchored_at,
+                age_seconds=age_seconds,
+                max_age_seconds=max_age,
+                max_unanchored_events=max_events,
+                reason="external anchor timestamp is too far in the future",
+            )
+        age_seconds = max(0, age_seconds)
+
+    if not verification.valid:
+        return AuditAnchorFreshnessResponse(
+            fresh=False,
+            verification_status=verification.status,
+            anchor_event_id=verification.anchor_event_id,
+            local_event_id=verification.local_event_id,
+            unanchored_events=unanchored_events,
+            anchored_at=verification.anchored_at,
+            age_seconds=age_seconds,
+            max_age_seconds=max_age,
+            max_unanchored_events=max_events,
+            reason=verification.reason,
+        )
+
+    if age_seconds is None:
+        return AuditAnchorFreshnessResponse(
+            fresh=False,
+            verification_status=verification.status,
+            anchor_event_id=verification.anchor_event_id,
+            local_event_id=verification.local_event_id,
+            unanchored_events=unanchored_events,
+            anchored_at=verification.anchored_at,
+            age_seconds=None,
+            max_age_seconds=max_age,
+            max_unanchored_events=max_events,
+            reason="external anchor timestamp missing",
+        )
+
+    if age_seconds > max_age:
+        return AuditAnchorFreshnessResponse(
+            fresh=False,
+            verification_status=verification.status,
+            anchor_event_id=verification.anchor_event_id,
+            local_event_id=verification.local_event_id,
+            unanchored_events=unanchored_events,
+            anchored_at=verification.anchored_at,
+            age_seconds=age_seconds,
+            max_age_seconds=max_age,
+            max_unanchored_events=max_events,
+            reason="external anchor is too old",
+        )
+
+    if unanchored_events > max_events:
+        return AuditAnchorFreshnessResponse(
+            fresh=False,
+            verification_status=verification.status,
+            anchor_event_id=verification.anchor_event_id,
+            local_event_id=verification.local_event_id,
+            unanchored_events=unanchored_events,
+            anchored_at=verification.anchored_at,
+            age_seconds=age_seconds,
+            max_age_seconds=max_age,
+            max_unanchored_events=max_events,
+            reason="too many unanchored audit events",
+        )
+
+    return AuditAnchorFreshnessResponse(
+        fresh=True,
+        verification_status=verification.status,
+        anchor_event_id=verification.anchor_event_id,
+        local_event_id=verification.local_event_id,
+        unanchored_events=unanchored_events,
+        anchored_at=verification.anchored_at,
+        age_seconds=age_seconds,
+        max_age_seconds=max_age,
+        max_unanchored_events=max_events,
+        reason=None,
+    )
+
+
+def assert_audit_anchor_fresh(
+    session: Session,
+) -> None:
+    if not _enforce_rollout_freshness():
+        return
+
+    result = audit_anchor_freshness(session)
+    if not result.fresh:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "fresh external audit anchor required for rollout: "
+                f"{result.reason or result.verification_status}"
+            ),
+        )

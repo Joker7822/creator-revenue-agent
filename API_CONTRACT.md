@@ -482,3 +482,34 @@ The configured external service receives an idempotent anchor containing:
 The returned WORM receipt must be signed by a trusted receipt key.
 
 Verification always queries the external service for the latest receipt; it does not treat the local receipt table as authoritative. This allows restoration of the application database to an older internally valid snapshot to be detected when the external anchor is ahead.
+
+
+## Production readiness
+
+```text
+GET /ready
+```
+
+This endpoint is intended for deployment/orchestrator readiness checks. It returns HTTP 200 when ready and HTTP 503 otherwise.
+
+The response contains a top-level `ready` boolean and named checks for:
+
+- current Alembic database revision
+- JWT service authentication mode and signing-key validity
+- trusted verification enforcement
+- verification-webhook key-ID enforcement
+- audit HMAC key configuration
+- local audit-chain integrity
+- external audit-anchor freshness
+
+The response exposes status and identifiers needed for diagnosis but never secret key material.
+
+## Audit-anchor freshness
+
+```text
+GET /v1/audit/anchors/freshness
+```
+
+Freshness requires the latest external anchor to pass rollback/integrity verification, be no older than `AUDIT_ANCHOR_MAX_AGE_SECONDS`, and be no more than `AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS` behind the local chain.
+
+When `ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true`, `POST /v1/change-sets/{change_set_id}/apply` returns HTTP 409 instead of modifying production state when the freshness gate fails.

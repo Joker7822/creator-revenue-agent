@@ -112,3 +112,18 @@ POST /v1/audit/anchors
 using a short-lived credential carrying only the `audit_anchor_operator` role.
 
 The cadence should be chosen from the maximum acceptable rollback-detection gap. Anchoring more frequently narrows that gap.
+
+
+## Freshness policy
+
+The application can enforce both a maximum receipt age and maximum unanchored event gap:
+
+```text
+AUDIT_ANCHOR_MAX_AGE_SECONDS=900
+AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS=100
+ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true
+```
+
+An anchor is fresh only if its signed receipt remains valid, its anchored prefix matches local history, it is within the maximum age, and the number of audit events after the anchored event is within the configured limit.
+
+This creates a bounded rollback-detection window. Choose thresholds based on the maximum acceptable amount of unaudited production activity, and schedule anchor creation frequently enough to remain comfortably inside both limits.

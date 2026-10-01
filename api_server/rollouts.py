@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api_server.audit_anchor import assert_audit_anchor_fresh
 from api_server.db import (
     AnalyticsEventRecord,
     ChangeSetRecord,
@@ -369,6 +370,8 @@ def apply_change_set(
             status_code=409,
             detail="active product required",
         )
+
+    assert_audit_anchor_fresh(session)
 
     expected = json.loads(record.expected_json)
     proposed = json.loads(record.proposed_json)

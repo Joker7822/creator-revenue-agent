@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, Request, Response
 
 from api_server.audit_anchor import (
+    audit_anchor_freshness,
     create_audit_anchor,
     verify_external_audit_anchor,
 )
@@ -50,6 +51,7 @@ from api_server.rollouts import (
     monitor_rollout,
     rollback_rollout,
 )
+from api_server.readiness import production_readiness
 from api_server.repository import (
     create_approval,
     create_job,
@@ -73,6 +75,7 @@ from api_server.schemas import (
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
     ApprovalResponse,
+    AuditAnchorFreshnessResponse,
     AuditAnchorReceiptResponse,
     AuditAnchorVerificationResponse,
     AuditEventResponse,
@@ -109,6 +112,7 @@ from api_server.schemas import (
     PolicyEvaluateResponse,
     ProductCreateRequest,
     ProductResponse,
+    ProductionReadinessResponse,
     PublicationResponse,
     PublishRequest,
     RevenueResponse,
@@ -147,7 +151,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.20.0",
+    version="0.21.0",
     lifespan=lifespan,
 )
 
@@ -155,6 +159,20 @@ app = FastAPI(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get(
+    "/ready",
+    response_model=ProductionReadinessResponse,
+)
+def ready(
+    response: Response,
+) -> ProductionReadinessResponse:
+    with SessionLocal() as session:
+        result = production_readiness(session)
+    if not result.ready:
+        response.status_code = 503
+    return result
 
 
 @app.post(
@@ -1034,6 +1052,16 @@ def audit_anchor_create(
 def audit_anchor_verify() -> AuditAnchorVerificationResponse:
     with SessionLocal() as session:
         return verify_external_audit_anchor(session)
+
+
+@app.get(
+    "/v1/audit/anchors/freshness",
+    response_model=AuditAnchorFreshnessResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def audit_anchor_freshness_get() -> AuditAnchorFreshnessResponse:
+    with SessionLocal() as session:
+        return audit_anchor_freshness(session)
 
 
 @app.get(

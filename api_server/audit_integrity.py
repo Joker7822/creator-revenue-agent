@@ -70,6 +70,18 @@ def _active_key_id() -> str:
     return key_id
 
 
+def audit_hash_configuration_status() -> tuple[bool, str]:
+    keys = _audit_keys()
+    active_key_id = _active_key_id()
+    return (
+        bool(keys) and active_key_id in keys,
+        (
+            f"active_key_id={active_key_id}; "
+            f"configured_keys={len(keys)}"
+        ),
+    )
+
+
 def _canonical_timestamp(value: datetime) -> str:
     if value.tzinfo is not None:
         value = value.astimezone(timezone.utc)

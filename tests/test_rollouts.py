@@ -580,3 +580,55 @@ def test_rollback_blocks_stale_production_state(
         headers=auth(),
     ).json()
     assert product["price_minor_units"] == 1400
+
+
+
+def test_rollout_blocks_when_anchor_freshness_is_missing(
+    monkeypatch,
+) -> None:
+    import api_server.audit_anchor as audit_anchor
+
+    state = setup_price_review(
+        monkeypatch,
+        "variant_preferred",
+    )
+    change_set = create_change_set(state)
+
+    approved = client.post(
+        (
+            f"/v1/change-sets/"
+            f"{change_set['change_set_id']}/approve"
+        ),
+        headers=role_auth("release-token"),
+        json={"actor": "ignored"},
+    )
+    assert approved.status_code == 200
+
+    monkeypatch.setenv(
+        "ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT",
+        "true",
+    )
+    monkeypatch.setattr(
+        audit_anchor,
+        "_get_latest_anchor",
+        lambda: None,
+    )
+
+    response = client.post(
+        (
+            f"/v1/change-sets/"
+            f"{change_set['change_set_id']}/apply"
+        ),
+        headers=role_auth("rollout-token"),
+        json={"actor": "ignored"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith(
+        "fresh external audit anchor required for rollout:"
+    )
+
+    product = client.get(
+        f"/v1/products/{state['product']['product_id']}",
+        headers=auth(),
+    ).json()
+    assert product["price_minor_units"] == 1500

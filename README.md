@@ -530,3 +530,30 @@ Rollback verification compares the latest external anchor with the local audit c
 Local `audit_anchor_receipts` rows are operational records only. The external WORM service is the rollback-detection source of truth.
 
 See `AUDIT_ANCHOR.md` for the proprietary anchor-service contract and scheduling guidance.
+
+
+## Production readiness and anchor freshness
+
+Two operational checks are available:
+
+```text
+GET /ready
+GET /v1/audit/anchors/freshness
+```
+
+`/ready` returns HTTP 200 only when all production-safety checks pass; otherwise it returns HTTP 503 with per-check status. It verifies the Alembic revision, JWT service authentication configuration, trusted-verification enforcement, verification-webhook key configuration, audit HMAC configuration, local audit-chain integrity, and external audit-anchor freshness.
+
+Anchor freshness is bounded by both time and audit-event gap:
+
+```text
+AUDIT_ANCHOR_MAX_AGE_SECONDS=900
+AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS=100
+```
+
+Production rollout additionally enforces:
+
+```text
+ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT=true
+```
+
+When enabled, an approved change set cannot be applied if the external anchor is missing, invalid, stale, behind by too many events, or indicates database rollback.

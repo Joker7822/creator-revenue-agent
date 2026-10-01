@@ -632,6 +632,30 @@ class AuditAnchorVerificationResponse(BaseModel):
     reason: str | None
 
 
+class AuditAnchorFreshnessResponse(BaseModel):
+    fresh: bool
+    verification_status: str
+    anchor_event_id: int | None
+    local_event_id: int | None
+    unanchored_events: int
+    anchored_at: datetime | None
+    age_seconds: int | None
+    max_age_seconds: int
+    max_unanchored_events: int
+    reason: str | None
+
+
+class ProductionReadinessCheck(BaseModel):
+    name: str
+    ready: bool
+    detail: str
+
+
+class ProductionReadinessResponse(BaseModel):
+    ready: bool
+    checks: list[ProductionReadinessCheck]
+
+
 class AuditIntegrityResponse(BaseModel):
     valid: bool
     checked_events: int
