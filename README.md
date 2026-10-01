@@ -35,6 +35,7 @@ Implemented:
 
 - content metadata and policy APIs
 - human approval workflow
+- resumable bounded-agent supervisor with explicit action risk levels
 - gated/idempotent publishing
 - products and proprietary billing transaction ingestion
 - revenue aggregation by currency
@@ -45,6 +46,20 @@ Implemented:
 - SQLite development database / SQLAlchemy abstraction
 - Alembic versioned database migrations
 - FastAPI / Docker / pytest / GitHub Actions CI
+
+## Bounded agent supervisor
+
+`app.agent.BoundedAgent` reconstructs a job's workflow state from the audit
+trail and current API records, then plans the next action with an explicit
+risk level.
+
+It may automatically perform only read-only or proposal-only work: optimizer
+proposal creation, pending change-set creation after a human
+`variant_preferred` review, and rollout monitoring. It never self-approves,
+publishes, starts an experiment, selects a winner, applies a rollout, or
+rolls production back.
+
+See `AGENT.md`.
 
 ## Analytics model
 
