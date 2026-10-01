@@ -287,6 +287,23 @@ def complete_experiment(
             detail="running experiment required",
         )
 
+    from api_server.experiment_statistics import (
+        evaluate_experiment_statistics,
+    )
+
+    statistics = evaluate_experiment_statistics(
+        session,
+        experiment_id=experiment_id,
+    )
+    if not statistics.gates.all_passed:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "experiment not ready for completion",
+                "gates": statistics.gates.model_dump(),
+            },
+        )
+
     experiment.status = "completed"
     experiment.completed_at = utcnow()
     experiment.outcome_json = json.dumps(

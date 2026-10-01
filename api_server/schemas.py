@@ -316,6 +316,72 @@ class ExperimentResultsResponse(BaseModel):
     comparison: dict[str, Any]
 
 
+class ProportionStatistic(BaseModel):
+    numerator: int
+    denominator: int
+    rate: float | None
+    ci_lower: float | None
+    ci_upper: float | None
+
+
+class ExperimentReadinessGates(BaseModel):
+    min_runtime_hours: int
+    runtime_hours: float
+    runtime_passed: bool
+    min_assignments_per_arm: int
+    assignments_passed: bool
+    min_impressions_per_arm: int
+    impressions_passed: bool
+    min_clicks_per_arm: int
+    clicks_passed: bool
+    all_passed: bool
+
+
+class ExperimentStatisticalArm(BaseModel):
+    arm: Literal["control", "variant"]
+    assignments: int
+    impressions: int
+    clicks: int
+    purchases: int
+    refunds: int
+    ctr: ProportionStatistic
+    cvr: ProportionStatistic
+    currencies: list[ExperimentCurrencyResult]
+
+
+class ExperimentStatisticsResponse(BaseModel):
+    experiment_id: str
+    status: str
+    confidence_level: float
+    alpha: float
+    gates: ExperimentReadinessGates
+    control: ExperimentStatisticalArm
+    variant: ExperimentStatisticalArm
+    tests: dict[str, float | None]
+    decision: Literal["manual_review_required"]
+    winner: None = None
+
+
+class ExperimentResultReviewCreateRequest(BaseModel):
+    decision: Literal[
+        "control_preferred",
+        "variant_preferred",
+        "inconclusive",
+    ]
+    reviewer: str = Field(min_length=1, max_length=120)
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class ExperimentResultReviewResponse(BaseModel):
+    review_id: str
+    experiment_id: str
+    decision: str
+    reviewer: str
+    reason: str | None
+    statistics_snapshot: dict[str, Any]
+    created_at: datetime
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

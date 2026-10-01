@@ -188,3 +188,40 @@ Evaluation status:
 
 - `insufficient_data` while either arm has fewer than 20 clicks
 - `ready_for_manual_review` otherwise
+
+
+## Experiment statistics
+
+```text
+GET /v1/experiments/{experiment_id}/statistics
+```
+
+Returns 95% Wilson confidence intervals for CTR and CVR, two-sided two-proportion z-test p-values, and explicit readiness gates.
+
+Default gates:
+
+```text
+EXPERIMENT_MIN_RUNTIME_HOURS=24
+EXPERIMENT_MIN_ASSIGNMENTS_PER_ARM=100
+EXPERIMENT_MIN_IMPRESSIONS_PER_ARM=100
+EXPERIMENT_MIN_CLICKS_PER_ARM=20
+```
+
+Experiment completion is blocked with HTTP 409 until all gates pass.
+
+The statistics response always leaves `winner` null and requires human review.
+
+## Experiment result review
+
+```text
+POST /v1/experiments/{experiment_id}/reviews
+GET  /v1/experiments/{experiment_id}/review
+```
+
+Allowed decisions:
+
+- `control_preferred`
+- `variant_preferred`
+- `inconclusive`
+
+Review requires a completed experiment and persists the statistical snapshot used for the decision. It does not change production configuration.

@@ -367,6 +367,32 @@ class ExperimentTransactionLinkRecord(Base):
     )
 
 
+class ExperimentResultReviewRecord(Base):
+    __tablename__ = "experiment_result_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            name="uq_experiment_result_review_experiment",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(120), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    statistics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

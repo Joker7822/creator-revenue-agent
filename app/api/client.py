@@ -215,6 +215,33 @@ class CustomAPIClient:
             f"/v1/experiments/{experiment_id}/results",
         )
 
+    def get_experiment_statistics(
+        self,
+        experiment_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/experiments/{experiment_id}/statistics",
+        )
+
+    def create_experiment_review(
+        self,
+        experiment_id: str,
+        *,
+        decision: str,
+        reviewer: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/reviews",
+            json={
+                "decision": decision,
+                "reviewer": reviewer,
+                "reason": reason,
+            },
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,

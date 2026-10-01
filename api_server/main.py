@@ -4,6 +4,11 @@ from fastapi import Depends, FastAPI
 
 from api_server.auth import require_service_token
 from api_server.db import SessionLocal, init_db
+from api_server.experiment_statistics import (
+    create_experiment_review,
+    evaluate_experiment_statistics,
+    get_experiment_review,
+)
 from api_server.experiments import (
     assign_subject,
     cancel_experiment,
@@ -54,6 +59,9 @@ from api_server.schemas import (
     ExperimentEventCreateRequest,
     ExperimentEventResponse,
     ExperimentResponse,
+    ExperimentResultReviewCreateRequest,
+    ExperimentResultReviewResponse,
+    ExperimentStatisticsResponse,
     ExperimentResultsResponse,
     ExperimentTransactionLinkRequest,
     ExperimentTransactionLinkResponse,
@@ -78,7 +86,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.9.0",
+    version="0.10.0",
 )
 
 
@@ -515,6 +523,55 @@ def experiment_results_get(
 ) -> ExperimentResultsResponse:
     with SessionLocal() as session:
         return get_experiment_results(
+            session,
+            experiment_id=experiment_id,
+        )
+
+
+@app.get(
+    "/v1/experiments/{experiment_id}/statistics",
+    response_model=ExperimentStatisticsResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_statistics_get(
+    experiment_id: str,
+) -> ExperimentStatisticsResponse:
+    with SessionLocal() as session:
+        return evaluate_experiment_statistics(
+            session,
+            experiment_id=experiment_id,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/reviews",
+    response_model=ExperimentResultReviewResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_review_create(
+    experiment_id: str,
+    request: ExperimentResultReviewCreateRequest,
+) -> ExperimentResultReviewResponse:
+    with SessionLocal() as session:
+        return create_experiment_review(
+            session,
+            experiment_id=experiment_id,
+            decision=request.decision,
+            reviewer=request.reviewer,
+            reason=request.reason,
+        )
+
+
+@app.get(
+    "/v1/experiments/{experiment_id}/review",
+    response_model=ExperimentResultReviewResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_review_get(
+    experiment_id: str,
+) -> ExperimentResultReviewResponse:
+    with SessionLocal() as session:
+        return get_experiment_review(
             session,
             experiment_id=experiment_id,
         )

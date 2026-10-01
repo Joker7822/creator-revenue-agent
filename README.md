@@ -211,3 +211,27 @@ events + billing links
 ```
 
 Results never auto-select a winner or mutate production configuration.
+
+
+## Statistical experiment review
+
+Experiment results now include a separate statistical-readiness layer.
+
+Default completion gates:
+
+```text
+minimum runtime:          24 hours
+minimum assignments/arm: 100
+minimum impressions/arm: 100
+minimum clicks/arm:       20
+```
+
+The statistics endpoint returns 95% Wilson confidence intervals for CTR/CVR and two-sided two-proportion z-test p-values. Statistical output never auto-selects a winner.
+
+An experiment cannot be completed until all readiness gates pass. After completion, a human reviewer records one of:
+
+- `control_preferred`
+- `variant_preferred`
+- `inconclusive`
+
+A review stores a statistics snapshot but does not mutate product price, content, or publishing state.

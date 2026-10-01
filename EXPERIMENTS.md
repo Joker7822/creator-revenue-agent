@@ -74,3 +74,46 @@ Starting or measuring an experiment does not:
 - bypass policy or approval gates
 
 Execution remains separate from measurement.
+
+
+## Statistical readiness
+
+```text
+GET /v1/experiments/{experiment_id}/statistics
+```
+
+Default gates:
+
+- 24 minimum runtime hours
+- 100 assignments per arm
+- 100 impressions per arm
+- 20 clicks per arm
+
+The endpoint returns:
+
+- 95% Wilson interval for CTR
+- 95% Wilson interval for CVR
+- two-sided two-proportion z-test p-value for CTR
+- two-sided two-proportion z-test p-value for CVR
+- readiness gate state
+
+P-values are evidence for review, not an automatic decision rule.
+
+## Early stopping prevention
+
+`POST /complete` returns HTTP 409 until every readiness gate passes.
+
+## Result review
+
+```text
+POST /v1/experiments/{experiment_id}/reviews
+GET  /v1/experiments/{experiment_id}/review
+```
+
+A completed, statistically ready experiment may receive one persisted human decision:
+
+- `control_preferred`
+- `variant_preferred`
+- `inconclusive`
+
+The review stores the statistical snapshot used at decision time. It does not apply a production change.
