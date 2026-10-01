@@ -58,7 +58,7 @@ def _auth_mode() -> str:
 
 
 def _configured_identities() -> dict[str, dict]:
-    raw = os.getenv("SERVICE_IDENTITIES_JSON", "").strip()
+    raw = read_secret_setting("SERVICE_IDENTITIES_JSON")
     if not raw:
         return {}
 
@@ -79,7 +79,7 @@ def _configured_identities() -> dict[str, dict]:
 
 
 def _jwt_keys() -> dict[str, str]:
-    raw = os.getenv("SERVICE_JWT_KEYS_JSON", "").strip()
+    raw = read_secret_setting("SERVICE_JWT_KEYS_JSON")
     if not raw:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -400,8 +400,8 @@ def _authenticate_static(token: str) -> ServicePrincipal | None:
 
     if _bool_env("ALLOW_LEGACY_ADMIN_TOKEN", False):
         expected = (
-            os.getenv("INTERNAL_API_TOKEN")
-            or os.getenv("CUSTOM_API_TOKEN")
+            read_secret_setting("INTERNAL_API_TOKEN")
+            or read_secret_setting("CUSTOM_API_TOKEN")
         )
         if (
             expected

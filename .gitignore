@@ -17,3 +17,10 @@ output/
 generated/
 identity/
 consent/
+
+
+# Local secret mounts / deployment material
+secrets/
+deploy/secrets/
+*.dump
+*.dump.sha256

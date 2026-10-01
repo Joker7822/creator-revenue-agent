@@ -6,8 +6,8 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
 
-    custom_api_base_url: str
-    custom_api_token: str
+    custom_api_base_url: str = "http://127.0.0.1:8000"
+    custom_api_token: str = ""
 
     database_url: str = "sqlite:///./agent.db"
 

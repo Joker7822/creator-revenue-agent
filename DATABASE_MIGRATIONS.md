@@ -92,3 +92,17 @@ Revision `20261001_0006` adds `audit_anchor_receipts`. These rows retain externa
 Revision `20261001_0007` adds non-null `state_version` columns, initialized to 1, to approvals, products, optimization proposals, experiments, change sets, and rollouts.
 
 Application mutations use these columns for optimistic concurrency checks in addition to row-level locks on production databases.
+
+
+## Release migration procedure
+
+For production releases:
+
+1. create a verified PostgreSQL backup
+2. run `python -m api_server.production_check`
+3. run `alembic upgrade head` once from a release/migration job
+4. start the new application image
+5. require `GET /ready` to pass before traffic
+6. create/verify an external audit anchor after cutover
+
+The application image intentionally does not run Alembic automatically. Multiple replicas must not race to perform migrations.

@@ -1,0 +1,76 @@
+services:
+  api:
+    image: creator-revenue-agent:production
+    user: "10001:10001"
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+
+      MIN_CREATOR_AGE: "18"
+      REQUIRE_HUMAN_REVIEW: "true"
+      ALLOW_AUTO_PUBLISH: "false"
+
+      SERVICE_AUTH_MODE: jwt
+      SERVICE_JWT_KEYS_JSON_FILE: /run/secrets/service_jwt_keys_json
+      SERVICE_JWT_ACTIVE_KID: "replace-active-kid"
+      SERVICE_JWT_ISSUER: creator-revenue-agent
+      SERVICE_JWT_AUDIENCE: creator-revenue-agent-internal
+      SERVICE_JWT_MAX_TTL_SECONDS: "900"
+      SERVICE_JWT_REQUIRE_ISSUED_RECORD: "true"
+      ALLOW_LEGACY_ADMIN_TOKEN: "false"
+
+      REQUIRE_TRUSTED_VERIFICATION: "true"
+      VERIFICATION_WEBHOOK_KEYS_JSON_FILE: /run/secrets/verification_webhook_keys_json
+      VERIFICATION_WEBHOOK_REQUIRE_KEY_ID: "true"
+      VERIFICATION_WEBHOOK_MAX_AGE_SECONDS: "300"
+      VERIFICATION_WEBHOOK_MAX_BODY_BYTES: "65536"
+
+      AUDIT_HASH_KEYS_JSON_FILE: /run/secrets/audit_hash_keys_json
+      AUDIT_HASH_ACTIVE_KID: "replace-audit-kid"
+
+      AUDIT_ANCHOR_BASE_URL: https://audit-anchor.example.internal
+      AUDIT_ANCHOR_TOKEN_FILE: /run/secrets/audit_anchor_token
+      AUDIT_ANCHOR_NAMESPACE: creator-revenue-agent-production
+      AUDIT_ANCHOR_RECEIPT_KEYS_JSON_FILE: /run/secrets/audit_anchor_receipt_keys_json
+      AUDIT_ANCHOR_TIMEOUT_SECONDS: "5"
+      AUDIT_ANCHOR_MAX_AGE_SECONDS: "900"
+      AUDIT_ANCHOR_MAX_UNANCHORED_EVENTS: "100"
+      ENFORCE_AUDIT_ANCHOR_FRESHNESS_ON_ROLLOUT: "true"
+
+      PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE: "true"
+    secrets:
+      - database_url
+      - service_jwt_keys_json
+      - verification_webhook_keys_json
+      - audit_hash_keys_json
+      - audit_anchor_token
+      - audit_anchor_receipt_keys_json
+
+secrets:
+  database_url:
+    file: ./secrets/database_url
+  service_jwt_keys_json:
+    file: ./secrets/service_jwt_keys_json
+  verification_webhook_keys_json:
+    file: ./secrets/verification_webhook_keys_json
+  audit_hash_keys_json:
+    file: ./secrets/audit_hash_keys_json
+  audit_anchor_token:
+    file: ./secrets/audit_anchor_token
+  audit_anchor_receipt_keys_json:
+    file: ./secrets/audit_anchor_receipt_keys_json

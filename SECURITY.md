@@ -201,3 +201,16 @@ High-risk workflow actions now use server-configured service identities and role
 - DB-backed idempotency is tested across loss of process-local observability state.
 - PostgreSQL CI validates actual row-lock blocking semantics; SQLite tests alone are not treated as evidence of production locking behavior.
 - External WORM state is used to detect restoration of an otherwise internally valid older database snapshot.
+
+
+## Deployment hardening
+
+- Production containers run as an unprivileged UID/GID and do not require a writable root filesystem.
+- The production Compose example drops all Linux capabilities and enables `no-new-privileges`.
+- Sensitive configuration can be mounted through `*_FILE` settings. Direct and file forms are mutually exclusive to prevent ambiguous secret precedence.
+- Secret files are size-bounded and fail closed when unreadable or empty.
+- Production preflight requires PostgreSQL, JWT-only service authentication, trusted verification, human review, webhook key IDs, external anchor enforcement, and HTTPS for the anchor endpoint.
+- Database migrations remain a dedicated release step; application startup does not mutate schema.
+- PostgreSQL backups use custom format, restrictive umask, and SHA-256 checksum files.
+- Restore requires explicit `RESTORE_CONFIRM=YES` and should be rehearsed only against an isolated database.
+- CI continuously verifies image non-root configuration and PostgreSQL backup/restore compatibility.

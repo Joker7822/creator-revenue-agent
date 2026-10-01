@@ -18,6 +18,7 @@ from api_server.db import (
     VerificationRecord,
     VerificationWebhookEventRecord,
 )
+from api_server.secret_source import read_secret_setting
 from api_server.schemas import (
     VerificationResponse,
     VerificationWebhookKeyStatusResponse,
@@ -78,10 +79,9 @@ def _validate_provider_keys(data: object) -> dict[str, dict[str, str]]:
 
 
 def _provider_keys() -> dict[str, dict[str, str]]:
-    raw = os.getenv(
+    raw = read_secret_setting(
         "VERIFICATION_WEBHOOK_KEYS_JSON",
-        "",
-    ).strip()
+    )
     if raw:
         try:
             return _validate_provider_keys(json.loads(raw))
@@ -91,10 +91,9 @@ def _provider_keys() -> dict[str, dict[str, str]]:
                 detail="verification webhook key configuration is invalid",
             ) from exc
 
-    legacy_raw = os.getenv(
+    legacy_raw = read_secret_setting(
         "VERIFICATION_WEBHOOK_SECRETS_JSON",
-        "",
-    ).strip()
+    )
     if not legacy_raw:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

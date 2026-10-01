@@ -24,6 +24,7 @@ from api_server.db import (
     AuditChainState,
     AuditEvent,
 )
+from api_server.secret_source import read_secret_setting
 from api_server.schemas import (
     AuditAnchorFreshnessResponse,
     AuditAnchorReceiptResponse,
@@ -45,7 +46,7 @@ def _base_url() -> str:
 
 
 def _token() -> str:
-    value = os.getenv("AUDIT_ANCHOR_TOKEN", "").strip()
+    value = read_secret_setting("AUDIT_ANCHOR_TOKEN")
     if not value:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -132,10 +133,9 @@ def _timeout_seconds() -> float:
 
 
 def _receipt_keys() -> dict[str, str]:
-    raw = os.getenv(
+    raw = read_secret_setting(
         "AUDIT_ANCHOR_RECEIPT_KEYS_JSON",
-        "",
-    ).strip()
+    )
     if not raw:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

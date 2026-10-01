@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from api_server.db import AuditChainState, AuditEvent
 from api_server.schemas import AuditIntegrityResponse
+from api_server.secret_source import read_secret_setting
 
 
 ROOT_HASH = "0" * 64
@@ -26,7 +27,7 @@ class AuditKeyUnavailable(Exception):
 
 
 def _audit_keys() -> dict[str, str]:
-    raw = os.getenv("AUDIT_HASH_KEYS_JSON", "").strip()
+    raw = read_secret_setting("AUDIT_HASH_KEYS_JSON")
     if not raw:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

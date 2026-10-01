@@ -614,3 +614,20 @@ CI now exercises explicit recovery scenarios in addition to happy-path tests:
 - a dedicated PostgreSQL CI job validates real `SELECT ... FOR UPDATE` serialization
 
 Operational recovery procedures are documented in `RECOVERY_RUNBOOK.md`.
+
+
+## Production deployment hardening
+
+Production deployment guidance is in `DEPLOYMENT.md`.
+
+Highlights:
+
+- hardened non-root container image
+- PostgreSQL-only production path with real row-lock CI coverage
+- secret-manager / mounted `*_FILE` support
+- preflight `python -m api_server.production_check`
+- backup and restore scripts with checksum verification
+- CI restore rehearsal against a separate PostgreSQL database
+- read-only container filesystem and dropped Linux capabilities in the production Compose example
+
+Do not place real secret files under source control. `secrets/`, `deploy/secrets/`, database dumps, and dump checksums are ignored.

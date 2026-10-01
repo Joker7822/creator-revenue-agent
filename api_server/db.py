@@ -13,6 +13,8 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
 )
+from api_server.secret_source import read_secret_setting
+
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -26,7 +28,10 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./agent.db")
+DATABASE_URL = read_secret_setting(
+    "DATABASE_URL",
+    default="sqlite:///./agent.db",
+)
 _connect_args = (
     {"check_same_thread": False}
     if DATABASE_URL.startswith("sqlite")

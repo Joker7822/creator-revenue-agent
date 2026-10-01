@@ -86,3 +86,41 @@ jobs:
           INTERNAL_API_TOKEN: test-token
           PRODUCTION_REQUIRE_ROW_LOCKING_DATABASE: "true"
         run: pytest -q tests/test_postgres_concurrency.py
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Verify PostgreSQL backup and restore
+        env:
+          PYTHONPATH: .
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/creator_agent"             -c "DELETE FROM audit_chain_state; INSERT INTO audit_chain_state (id,last_event_id,last_hash,hash_key_id,state_hash,updated_at) VALUES (1,NULL,repeat('3',64),'backup-marker',repeat('4',64),CURRENT_TIMESTAMP);"
+
+          DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/creator_agent"             bash scripts/postgres_backup.sh /tmp/creator-agent-ci.dump
+
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres"             -c "DROP DATABASE IF EXISTS creator_agent_restore;"
+          psql "postgresql://postgres:postgres@127.0.0.1:5432/postgres"             -c "CREATE DATABASE creator_agent_restore;"
+
+          DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:5432/creator_agent_restore"           RESTORE_CONFIRM=YES             bash scripts/postgres_restore.sh /tmp/creator-agent-ci.dump
+
+          test "$(psql "postgresql://postgres:postgres@127.0.0.1:5432/creator_agent_restore" -Atc "SELECT last_hash FROM audit_chain_state WHERE id=1;")" = "$(printf '3%.0s' {1..64})"
+
+          DATABASE_URL="postgresql+psycopg://postgres:postgres@127.0.0.1:5432/creator_agent_restore"             alembic current | grep "20261001_0007"
+
+
+  container-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t creator-revenue-agent:ci .
+
+      - name: Verify non-root image configuration
+        run: |
+          test "$(docker image inspect creator-revenue-agent:ci --format '{{.Config.User}}')" = "10001:10001"
+          docker image inspect creator-revenue-agent:ci --format '{{json .Config.Healthcheck}}' | grep -q '"Test"'

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import os
-
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from api_server.db import Base
+from api_server.secret_source import read_secret_setting
 
 
 config = context.config
-database_url = os.getenv("DATABASE_URL")
+database_url = read_secret_setting("DATABASE_URL")
 if database_url:
     config.set_main_option(
         "sqlalchemy.url",
