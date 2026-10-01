@@ -137,3 +137,54 @@ Supported experiment plan types:
 - posting-time test
 
 Experiments are records/plans only. Starting one does not mutate product price, replace content, publish, or route live traffic.
+
+
+## Experiment assignment
+
+```text
+POST /v1/experiments/{experiment_id}/assignments
+```
+
+Request:
+
+```json
+{
+  "subject_key": "opaque-pseudonymous-key"
+}
+```
+
+The raw subject key is not persisted. Assignment is deterministic and returns either `control` or `variant`.
+
+## Experiment events
+
+```text
+POST /v1/experiments/{experiment_id}/events
+```
+
+Supported event types:
+
+- `impression`
+- `click`
+
+Event IDs are idempotency keys.
+
+## Experiment transaction linkage
+
+```text
+POST /v1/experiments/{experiment_id}/transactions
+```
+
+The request references an existing Billing API transaction and an experiment assignment. Transaction product must match the experiment product.
+
+## Experiment results
+
+```text
+GET /v1/experiments/{experiment_id}/results
+```
+
+Returns control/variant descriptive metrics and per-currency revenue deltas. The API does not automatically declare a winner.
+
+Evaluation status:
+
+- `insufficient_data` while either arm has fewer than 20 clicks
+- `ready_for_manual_review` otherwise

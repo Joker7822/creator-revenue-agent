@@ -167,6 +167,54 @@ class CustomAPIClient:
             json={"actor": actor},
         )
 
+    def assign_experiment_subject(
+        self,
+        experiment_id: str,
+        *,
+        subject_key: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/assignments",
+            json={"subject_key": subject_key},
+        )
+
+    def record_experiment_event(
+        self,
+        experiment_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/events",
+            json=payload,
+        )
+
+    def link_experiment_transaction(
+        self,
+        experiment_id: str,
+        *,
+        transaction_id: str,
+        assignment_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/experiments/{experiment_id}/transactions",
+            json={
+                "transaction_id": transaction_id,
+                "assignment_id": assignment_id,
+            },
+        )
+
+    def get_experiment_results(
+        self,
+        experiment_id: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/experiments/{experiment_id}/results",
+        )
+
     def complete_experiment(
         self,
         experiment_id: str,

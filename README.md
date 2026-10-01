@@ -188,3 +188,26 @@ completed cancelled
 ```
 
 Experiment state changes do not automatically change price, content, publishing, or traffic routing.
+
+
+## Experiment assignment and evaluation
+
+Running experiments support deterministic control/variant assignment, experiment-specific impression/click events, Billing transaction linkage, and arm-level results.
+
+The service stores only an experiment-scoped SHA-256 subject hash, not the raw assignment key.
+
+```text
+running experiment
+      |
+  assignment
+   /      \
+control  variant
+   |        |
+events + billing links
+   \        /
+      results
+        |
+ manual review
+```
+
+Results never auto-select a winner or mutate production configuration.

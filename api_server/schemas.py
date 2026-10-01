@@ -241,6 +241,81 @@ class ExperimentResponse(BaseModel):
     outcome: dict[str, Any] | None
 
 
+class ExperimentAssignmentCreateRequest(BaseModel):
+    subject_key: str = Field(min_length=1, max_length=512)
+
+
+class ExperimentAssignmentResponse(BaseModel):
+    assignment_id: str
+    experiment_id: str
+    arm: Literal["control", "variant"]
+    assigned_at: datetime
+
+
+class ExperimentEventCreateRequest(BaseModel):
+    event_id: str = Field(min_length=1, max_length=128)
+    assignment_id: str = Field(min_length=1, max_length=128)
+    event_type: Literal["impression", "click"]
+    occurred_at: datetime | None = None
+
+
+class ExperimentEventResponse(BaseModel):
+    event_id: str
+    experiment_id: str
+    assignment_id: str
+    arm: Literal["control", "variant"]
+    event_type: Literal["impression", "click"]
+    occurred_at: datetime
+    recorded_at: datetime
+
+
+class ExperimentTransactionLinkRequest(BaseModel):
+    transaction_id: str = Field(min_length=1, max_length=128)
+    assignment_id: str = Field(min_length=1, max_length=128)
+
+
+class ExperimentTransactionLinkResponse(BaseModel):
+    transaction_id: str
+    experiment_id: str
+    assignment_id: str
+    arm: Literal["control", "variant"]
+    kind: Literal["sale", "refund"]
+    amount_minor_units: int
+    currency: str
+    linked_at: datetime
+
+
+class ExperimentCurrencyResult(BaseModel):
+    currency: str
+    sales_minor_units: int
+    refunds_minor_units: int
+    net_revenue_minor_units: int
+
+
+class ExperimentArmResult(BaseModel):
+    arm: Literal["control", "variant"]
+    assignments: int
+    impressions: int
+    clicks: int
+    purchases: int
+    refunds: int
+    ctr: float
+    cvr: float
+    currencies: list[ExperimentCurrencyResult]
+
+
+class ExperimentResultsResponse(BaseModel):
+    experiment_id: str
+    status: str
+    evaluation_status: Literal[
+        "insufficient_data",
+        "ready_for_manual_review",
+    ]
+    control: ExperimentArmResult
+    variant: ExperimentArmResult
+    comparison: dict[str, Any]
+
+
 class AuditEventResponse(BaseModel):
     id: int
     job_id: str | None

@@ -282,6 +282,91 @@ class ExperimentRecord(Base):
     )
 
 
+class ExperimentAssignmentRecord(Base):
+    __tablename__ = "experiment_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            "subject_hash",
+            name="uq_experiment_assignment_subject",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    subject_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    arm: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
+class ExperimentEventRecord(Base):
+    __tablename__ = "experiment_events"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiment_assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    arm: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
+class ExperimentTransactionLinkRecord(Base):
+    __tablename__ = "experiment_transaction_links"
+
+    transaction_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("transactions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    experiment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("experiment_assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    arm: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 

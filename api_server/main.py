@@ -5,10 +5,14 @@ from fastapi import Depends, FastAPI
 from api_server.auth import require_service_token
 from api_server.db import SessionLocal, init_db
 from api_server.experiments import (
+    assign_subject,
     cancel_experiment,
     complete_experiment,
     create_experiment,
     get_experiment,
+    get_experiment_results,
+    link_experiment_transaction,
+    record_experiment_event,
     start_experiment,
 )
 from api_server.optimizer import (
@@ -42,10 +46,17 @@ from api_server.schemas import (
     ContentGenerateRequest,
     ContentGenerateResponse,
     ExperimentActorRequest,
+    ExperimentAssignmentCreateRequest,
+    ExperimentAssignmentResponse,
     ExperimentCancelRequest,
     ExperimentCompleteRequest,
     ExperimentCreateRequest,
+    ExperimentEventCreateRequest,
+    ExperimentEventResponse,
     ExperimentResponse,
+    ExperimentResultsResponse,
+    ExperimentTransactionLinkRequest,
+    ExperimentTransactionLinkResponse,
     MetricsResponse,
     OptimizationDecisionRequest,
     OptimizationProposalCreateRequest,
@@ -67,7 +78,7 @@ init_db()
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.8.0",
+    version="0.9.0",
 )
 
 
@@ -436,6 +447,76 @@ def experiment_cancel(
             experiment_id=experiment_id,
             actor=request.actor,
             reason=request.reason,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/assignments",
+    response_model=ExperimentAssignmentResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_assignment_create(
+    experiment_id: str,
+    request: ExperimentAssignmentCreateRequest,
+) -> ExperimentAssignmentResponse:
+    with SessionLocal() as session:
+        return assign_subject(
+            session,
+            experiment_id=experiment_id,
+            subject_key=request.subject_key,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/events",
+    response_model=ExperimentEventResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_event_create(
+    experiment_id: str,
+    request: ExperimentEventCreateRequest,
+) -> ExperimentEventResponse:
+    with SessionLocal() as session:
+        return record_experiment_event(
+            session,
+            experiment_id=experiment_id,
+            event_id=request.event_id,
+            assignment_id=request.assignment_id,
+            event_type=request.event_type,
+            occurred_at=request.occurred_at,
+        )
+
+
+@app.post(
+    "/v1/experiments/{experiment_id}/transactions",
+    response_model=ExperimentTransactionLinkResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_transaction_link(
+    experiment_id: str,
+    request: ExperimentTransactionLinkRequest,
+) -> ExperimentTransactionLinkResponse:
+    with SessionLocal() as session:
+        return link_experiment_transaction(
+            session,
+            experiment_id=experiment_id,
+            transaction_id=request.transaction_id,
+            assignment_id=request.assignment_id,
+        )
+
+
+@app.get(
+    "/v1/experiments/{experiment_id}/results",
+    response_model=ExperimentResultsResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def experiment_results_get(
+    experiment_id: str,
+) -> ExperimentResultsResponse:
+    with SessionLocal() as session:
+        return get_experiment_results(
+            session,
+            experiment_id=experiment_id,
         )
 
 
