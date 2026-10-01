@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import Depends, FastAPI
@@ -11,7 +12,8 @@ from api_server.auth import (
     require_service_token,
     revoke_service_credential,
 )
-from api_server.db import SessionLocal, init_db
+from api_server.db import SessionLocal
+from api_server.migration_runtime import assert_database_current
 from api_server.experiment_statistics import (
     create_experiment_review,
     evaluate_experiment_statistics,
@@ -114,11 +116,16 @@ from api_server.schemas import (
 from api_server.services import evaluate_policy, generate_campaign_metadata
 
 
-init_db()
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    assert_database_current()
+    yield
+
 
 app = FastAPI(
     title="creator-revenue-agent internal API",
-    version="0.14.0",
+    version="0.15.0",
+    lifespan=lifespan,
 )
 
 

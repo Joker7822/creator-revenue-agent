@@ -43,6 +43,7 @@ Implemented:
 - audit trail
 - bearer-token service authentication
 - SQLite development database / SQLAlchemy abstraction
+- Alembic versioned database migrations
 - FastAPI / Docker / pytest / GitHub Actions CI
 
 ## Analytics model
@@ -141,7 +142,7 @@ Engagement events   Transactions
 - `analytics_events`
 - `audit_events`
 
-For production, use a managed SQL database and schema migrations before deployment.
+Schema changes are managed with Alembic. For production, use a managed SQL database and run migrations as a dedicated release step before deployment.
 
 ## Local setup
 
@@ -150,6 +151,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head
 uvicorn api_server.main:app --reload
 ```
 
@@ -345,3 +347,19 @@ Rotation uses multiple configured signing keys:
 During the overlap, credentials signed by either configured key remain valid. Removing a key immediately makes credentials signed by that key invalid.
 
 Production should run `SERVICE_AUTH_MODE=jwt`. `hybrid` exists only for bootstrap/migration from static service tokens.
+
+
+## Database migration workflow
+
+Application import no longer calls `Base.metadata.create_all()`.
+
+Use:
+
+```bash
+alembic upgrade head
+alembic current
+```
+
+The API validates the Alembic revision during application lifespan startup and fails fast if the database is behind.
+
+The baseline migration can adopt databases created by the earlier `create_all()` implementation without dropping existing tables. See `DATABASE_MIGRATIONS.md`.

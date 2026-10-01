@@ -564,6 +564,3 @@ class AuditEvent(Base):
         index=True,
     )
 
-
-def init_db() -> None:
-    Base.metadata.create_all(engine)

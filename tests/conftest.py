@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 
 os.environ.setdefault(
     "CUSTOM_API_BASE_URL",
@@ -102,19 +103,37 @@ os.environ.setdefault(
     ),
 )
 
+from alembic import command
+from alembic.config import Config
 import pytest
 
-from api_server.db import Base, engine, init_db
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _reset_test_database() -> None:
+    database_url = os.environ["DATABASE_URL"]
+    prefix = "sqlite:///"
+    if database_url.startswith(prefix):
+        path = Path(database_url.removeprefix(prefix))
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        if path.exists():
+            path.unlink()
+
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    command.upgrade(config, "head")
+
+
+_reset_test_database()
+
+from api_server.db import Base, engine
 
 
 @pytest.fixture(autouse=True)
 def clean_database():
-    init_db()
-
     with engine.begin() as conn:
-        for table in reversed(
-            Base.metadata.sorted_tables
-        ):
+        for table in reversed(Base.metadata.sorted_tables):
             conn.execute(table.delete())
 
     yield

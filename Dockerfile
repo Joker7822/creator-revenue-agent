@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY api_server ./api_server
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 
 EXPOSE 8000
 

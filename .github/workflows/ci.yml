@@ -22,6 +22,15 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Migrate database
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: sqlite:///./ci-agent.db
+        run: |
+          rm -f ci-agent.db
+          alembic upgrade head
+          alembic current
+
       - name: Test
         env:
           PYTHONPATH: .

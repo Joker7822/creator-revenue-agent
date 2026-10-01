@@ -334,3 +334,18 @@ JWT headers use `alg=HS256`, `typ=JWT`, and a configured `kid`.
 The server validates signature, issuer, audience, lifetime, allowed roles, key status, persisted issuance record, and revocation state.
 
 Revocation is immediate for credentials managed by the internal issuer. Signing-key rotation supports an overlap period where old and new `kid` values are both configured.
+
+
+## Database schema lifecycle
+
+Database schema is versioned with Alembic. API startup does not create or mutate tables.
+
+Deployment order:
+
+```text
+backup
+  -> alembic upgrade head
+  -> start new API version
+```
+
+The API performs a startup revision check and refuses to serve with a database revision that is not the current Alembic head.
