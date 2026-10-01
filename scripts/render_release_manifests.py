@@ -89,13 +89,19 @@ def render_bundle(
             raise ValueError(
                 f"{path.name}: unresolved image placeholder"
             )
-        if re.search(
-            r"image:\s+ghcr\.io/[^\s]+:(?!sha256)",
-            text,
-        ):
-            raise ValueError(
-                f"{path.name}: mutable image tag is forbidden"
-            )
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("image:"):
+                continue
+            image_value = stripped.split(":", 1)[1].strip()
+            image_value = image_value.strip("'\"")
+            if (
+                image_value.startswith("ghcr.io/")
+                and "@sha256:" not in image_value
+            ):
+                raise ValueError(
+                    f"{path.name}: mutable image tag is forbidden"
+                )
 
     metadata = {
         "version": "promotion-bundle-v1",
