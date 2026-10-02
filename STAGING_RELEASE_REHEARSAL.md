@@ -163,7 +163,7 @@ permissions required to:
   `pod-security.kubernetes.io/enforce=restricted` label
 - read only the staging application Secret metadata/data keys
 - read the `ghcr-pull` Secret so preflight can verify its credential contract
-- create/delete/get/watch the migration Job and Pods/logs needed for failure
+- create/delete/get/list/watch the migration Job and Pods/logs needed for failure
   diagnosis
 - apply the checked-in namespaced ServiceAccount, ConfigMap, Deployment,
   Service, PodDisruptionBudget, HorizontalPodAutoscaler, and NetworkPolicy
