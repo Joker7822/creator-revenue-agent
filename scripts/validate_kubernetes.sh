@@ -22,6 +22,8 @@ required_patterns=(
   "requests:"
   "limits:"
   "automountServiceAccountToken: false"
+  "imagePullSecrets:"
+  "- name: ghcr-pull"
   "minAvailable: 2"
 )
 

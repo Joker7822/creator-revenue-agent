@@ -162,6 +162,7 @@ permissions required to:
 - get the pre-provisioned staging Namespace so the workflow can verify the
   `pod-security.kubernetes.io/enforce=restricted` label
 - read only the staging application Secret metadata/data keys
+- read the `ghcr-pull` Secret so preflight can verify its credential contract
 - create/delete/get/watch the migration Job and Pods/logs needed for failure
   diagnosis
 - apply the checked-in namespaced ServiceAccount, ConfigMap, Deployment,
@@ -171,6 +172,10 @@ permissions required to:
 The workflow does not create or modify the Namespace. Namespace write
 permission is not required. The Namespace read permission is cluster-scoped;
 all deployment writes can remain confined to the staging namespace.
+
+The checked-in application ServiceAccount references a Kubernetes image pull
+Secret named `ghcr-pull`. Provision it before the first rehearsal when the GHCR
+package is private. Do not commit registry credentials to this repository.
 
 ## Staging manifest derivation
 
@@ -283,3 +288,68 @@ After this workflow is merged to `main`:
 Do not create a synthetic image or bypass the Promotion Gate for the
 rehearsal; the purpose is to exercise the same release identity that can
 later be promoted to production.
+
+
+## Staging preflight
+
+Before creating the first semantic release tag, run:
+
+```text
+.github/workflows/staging-preflight.yml
+```
+
+through GitHub Actions **Run workflow**. It uses the same protected
+`staging` Environment as the rehearsal but performs no Kubernetes writes.
+
+The preflight validates:
+
+- all required Environment variables and `KUBECONFIG_B64`
+- the exact kube context and API server binding
+- connectivity to the configured Kubernetes API
+- `pod-security.kubernetes.io/enforce=restricted`
+- the six-key `creator-revenue-agent-secrets` contract
+- PostgreSQL DSN scheme
+- JWT and audit active key IDs against their staging key rings
+- verification webhook and anchor receipt key-ring structure
+- the `ghcr-pull` Docker config contract for `ghcr.io`
+- required namespaced deployment permissions
+- absence of Secret-create/patch and Namespace-delete permission
+- the checked-in application ServiceAccount binding to `ghcr-pull`
+
+A successful preflight proves the GitHub-to-cluster credential and RBAC path is
+ready without publishing an image or applying a release. It does not prove
+runtime reachability from application Pods to PostgreSQL or the external Audit
+Anchor service; those remain runtime dependencies exercised by the rehearsal.
+
+### Private GHCR package
+
+For a private GHCR image, create the pull Secret in the staging namespace:
+
+```bash
+kubectl -n creator-revenue-agent-staging create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io \
+  --docker-username=<github-user> \
+  --docker-password='<token-with-package-read-access>' \
+  --docker-email='<email>'
+```
+
+The credential should have read-only package access and should be staging-only.
+The GitHub deployer needs only `get` access to this Secret so preflight can
+verify the contract; it does not need permission to create or update it.
+
+## First rehearsal readiness order
+
+Use this order before the first release tag:
+
+1. pre-provision the staging Namespace with restricted Pod Security
+2. provision staging PostgreSQL and the external Audit Anchor service
+3. provision `creator-revenue-agent-secrets`
+4. provision the private-registry `ghcr-pull` Secret
+5. configure the least-privilege GitHub deployer kubeconfig
+6. configure the GitHub `staging` Environment variables and `KUBECONFIG_B64`
+7. run **Staging Preflight** and require a successful result
+8. only then push the first semantic release tag
+
+Do not use a production database, production signing key, production webhook
+secret, production anchor token, or production registry credential for the
+staging rehearsal.
