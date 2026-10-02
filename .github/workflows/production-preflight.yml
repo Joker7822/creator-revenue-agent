@@ -66,6 +66,17 @@ jobs:
               raise SystemExit(
                   "AUDIT_ANCHOR_BASE_URL must not embed credentials"
               )
+          forbidden = {
+              "localhost",
+              "127.0.0.1",
+              "host.docker.internal",
+              "kubernetes.docker.internal",
+          }
+          hostname = (anchor.hostname or "").lower()
+          if hostname in forbidden or hostname.endswith(".invalid"):
+              raise SystemExit(
+                  "production audit anchor must not use a local/test host"
+              )
           PY
 
       - name: Configure exact production cluster
@@ -90,6 +101,13 @@ jobs:
               -o jsonpath='{.clusters[0].cluster.server}'
           )"
           test "$ACTUAL_SERVER" = "$KUBE_SERVER"
+
+          case "$KUBE_CONTEXT|$ACTUAL_SERVER" in
+            *docker-desktop*|*kubernetes.docker.internal*|*host.docker.internal*|*localhost*|*127.0.0.1*)
+              echo "production cluster must not point at a local Docker Desktop endpoint" >&2
+              exit 1
+              ;;
+          esac
 
           kubectl cluster-info >/dev/null
 
