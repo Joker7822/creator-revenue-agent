@@ -10,6 +10,7 @@ WORKFLOWS = (
     Path(".github/workflows/release.yml"),
     Path(".github/workflows/promote.yml"),
     Path(".github/workflows/staging-release-rehearsal.yml"),
+    Path(".github/workflows/staging-preflight.yml"),
 )
 
 USES_LINE = re.compile(
@@ -181,6 +182,57 @@ def validate_staging_rehearsal_workflow(
     return errors
 
 
+def validate_staging_preflight_workflow(
+    path: Path,
+) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+
+    required = (
+        "workflow_dispatch:",
+        "group: staging-preflight",
+        "environment: staging",
+        "KUBECONFIG_B64",
+        "KUBE_CONTEXT",
+        "KUBE_SERVER",
+        "K8S_NAMESPACE",
+        "SERVICE_JWT_ACTIVE_KID",
+        "AUDIT_HASH_ACTIVE_KID",
+        "AUDIT_ANCHOR_BASE_URL",
+        "AUDIT_ANCHOR_NAMESPACE",
+        "kubectl config use-context",
+        "pod-security",
+        "creator-revenue-agent-secrets",
+        "service_jwt_keys_json",
+        "audit_hash_keys_json",
+        "audit_anchor_receipt_keys_json",
+        "ghcr-pull",
+        "kubectl auth can-i",
+        "delete namespace",
+        "create secrets",
+    )
+    for token in required:
+        if token not in text:
+            errors.append(
+                f"{path}: missing staging preflight invariant: {token}"
+            )
+
+    if "kubectl apply" in text or "kubectl create" in text:
+        errors.append(
+            f"{path}: staging preflight must not mutate the cluster"
+        )
+
+    if re.search(
+        r"uses:\\s+[^\\s]+@(v\\d+|main|master)\\b",
+        text,
+    ):
+        errors.append(
+            f"{path}: mutable GitHub Action ref is forbidden"
+        )
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     for workflow in WORKFLOWS:
@@ -203,6 +255,12 @@ def main() -> int:
     if staging.is_file():
         errors.extend(
             validate_staging_rehearsal_workflow(staging)
+        )
+
+    preflight = Path(".github/workflows/staging-preflight.yml")
+    if preflight.is_file():
+        errors.extend(
+            validate_staging_preflight_workflow(preflight)
         )
 
     if errors:
