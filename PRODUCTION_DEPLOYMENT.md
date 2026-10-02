@@ -126,6 +126,15 @@ It must not have:
 
 Both Production Preflight and Production Deployment verify these boundaries.
 
+A concrete baseline is provided at:
+
+```text
+deploy/kubernetes/production-deployer-rbac.example.yaml
+```
+
+Review and adapt the namespace/principal bootstrap to the selected managed
+Kubernetes provider before applying it.
+
 ## Production Preflight
 
 Run:
