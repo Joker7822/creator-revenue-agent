@@ -319,6 +319,7 @@ jobs:
           done
 
           require_yes get jobs.batch -n "$K8S_NAMESPACE"
+          require_yes list jobs.batch -n "$K8S_NAMESPACE"
           require_yes create jobs.batch -n "$K8S_NAMESPACE"
           require_yes delete jobs.batch -n "$K8S_NAMESPACE"
           require_yes watch jobs.batch -n "$K8S_NAMESPACE"
