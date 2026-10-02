@@ -1,0 +1,509 @@
+name: Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Semantic release tag that passed staging rehearsal
+        required: true
+        type: string
+      image_ref:
+        description: Immutable GHCR image reference with sha256 digest
+        required: true
+        type: string
+      staging_run_id:
+        description: Successful Staging Release Rehearsal run ID for this exact release
+        required: true
+        type: string
+      backup_reference:
+        description: External production database backup/snapshot reference
+        required: true
+        type: string
+      change_reference:
+        description: Production change/ticket reference
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+  attestations: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  promotion-gate:
+    uses: ./.github/workflows/promote.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      image_ref: ${{ inputs.image_ref }}
+      target_environment: production
+
+  rollout-production:
+    needs:
+      - promotion-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      IMAGE_REF: ${{ inputs.image_ref }}
+      STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+      BACKUP_REFERENCE: ${{ inputs.backup_reference }}
+      CHANGE_REFERENCE: ${{ inputs.change_reference }}
+      KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+      KUBE_SERVER: ${{ vars.KUBE_SERVER }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      SERVICE_JWT_ACTIVE_KID: ${{ vars.SERVICE_JWT_ACTIVE_KID }}
+      AUDIT_HASH_ACTIVE_KID: ${{ vars.AUDIT_HASH_ACTIVE_KID }}
+      AUDIT_ANCHOR_BASE_URL: ${{ vars.AUDIT_ANCHOR_BASE_URL }}
+      AUDIT_ANCHOR_NAMESPACE: ${{ vars.AUDIT_ANCHOR_NAMESPACE }}
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: "v1.31.4"
+
+      - name: Resolve production release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = "refs/heads/main"
+          echo "$STAGING_RUN_ID" | grep -Eq '^[0-9]+$'
+
+          for value in "$BACKUP_REFERENCE" "$CHANGE_REFERENCE"; do
+            test -n "$value"
+            test "$(printf '%s' "$value" | wc -l)" -eq 0
+          done
+
+          git fetch --force --tags origin
+          git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}" >/dev/null
+          SOURCE_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+          echo "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+
+          IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
+          case "${IMAGE_REF,,}" in
+            "$IMAGE_NAME"@sha256:*) ;;
+            *)
+              echo "production image must be this repository's immutable GHCR digest" >&2
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "SOURCE_COMMIT=$SOURCE_COMMIT"
+            echo "IMAGE_REF=${IMAGE_REF,,}"
+          } >> "$GITHUB_ENV"
+
+      - name: Require successful staging rehearsal evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api             "repos/$GITHUB_REPOSITORY/actions/runs/$STAGING_RUN_ID"             > staging-run.json
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          run = json.loads(
+              Path("staging-run.json").read_text(encoding="utf-8")
+          )
+          if run.get("name") != "Staging Release Rehearsal":
+              raise SystemExit("staging_run_id is not a staging rehearsal")
+          if run.get("conclusion") != "success":
+              raise SystemExit("staging rehearsal did not complete successfully")
+          if run.get("repository", {}).get("full_name") != os.environ["GITHUB_REPOSITORY"]:
+              raise SystemExit("staging rehearsal repository mismatch")
+          PY
+
+          mkdir -p staging-proof
+          gh run download "$STAGING_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "staging-rehearsal-$RELEASE_TAG"             --dir staging-proof
+
+          cd staging-proof
+          sha256sum --check staging-rollout-evidence.json.sha256
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("staging-rollout-evidence.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = {
+              "version": "staging-rollout-evidence-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+          }
+          for key, value in expected.items():
+              if evidence.get(key) != value:
+                  raise SystemExit(
+                      f"staging evidence mismatch for {key}"
+                  )
+
+          desired = int(evidence.get("desired_replicas") or 0)
+          ready = int(evidence.get("ready_replicas") or 0)
+          if desired < 1 or ready < desired:
+              raise SystemExit("staging evidence is not fully ready")
+
+          digest = os.environ["IMAGE_REF"].split("@", 1)[1]
+          image_ids = evidence.get("runtime_image_ids") or []
+          if not image_ids or not all(
+              digest in image_id for image_id in image_ids
+          ):
+              raise SystemExit("staging runtime digest evidence mismatch")
+          PY
+
+      - name: Download verified production promotion handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p promotion-artifact
+          gh run download "$GITHUB_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "verified-promotion-$RELEASE_TAG"             --dir promotion-artifact
+
+          cd promotion-artifact
+          sha256sum --check promotion-evidence.json.sha256
+          sha256sum --check provenance-verification.json.sha256
+          sha256sum --check sbom-verification.json.sha256
+          sha256sum --check verified-application.yaml.sha256
+          cd verified-kubernetes
+          sha256sum --check SHA256SUMS
+
+      - name: Bind promotion evidence to production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("promotion-artifact/promotion-evidence.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          expected = {
+              "version": "verified-promotion-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+          }
+          for key, value in expected.items():
+              if evidence.get(key) != value:
+                  raise SystemExit(
+                      f"production promotion evidence mismatch for {key}"
+                  )
+          PY
+
+      - name: Render production-specific Kubernetes bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python scripts/render_production_manifests.py             --source-dir promotion-artifact/verified-kubernetes             --output-dir production-kubernetes             --release-tag "$RELEASE_TAG"             --source-commit "$SOURCE_COMMIT"             --image-ref "$IMAGE_REF"             --namespace "$K8S_NAMESPACE"             --service-jwt-active-kid "$SERVICE_JWT_ACTIVE_KID"             --audit-hash-active-kid "$AUDIT_HASH_ACTIVE_KID"             --audit-anchor-base-url "$AUDIT_ANCHOR_BASE_URL"             --audit-anchor-namespace "$AUDIT_ANCHOR_NAMESPACE"
+
+          kubectl kustomize production-kubernetes             > production-application.yaml
+
+          cat production-kubernetes/namespace.yaml             > production-validation.yaml
+          printf '\n---\n' >> production-validation.yaml
+          cat production-application.yaml             >> production-validation.yaml
+          printf '\n---\n' >> production-validation.yaml
+          cat production-kubernetes/migration-job.yaml             >> production-validation.yaml
+
+          bash scripts/validate_kubernetes.sh production-validation.yaml
+
+          docker run --rm             -v "$PWD:/work"             ghcr.io/yannh/kubeconform:v0.6.7             -strict             -summary             -kubernetes-version 1.31.0             /work/production-validation.yaml
+
+          sha256sum production-application.yaml             > production-application.yaml.sha256
+          sha256sum production-validation.yaml             > production-validation.yaml.sha256
+
+      - name: Configure exact production cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for name in             KUBE_CONTEXT             KUBE_SERVER             K8S_NAMESPACE             SERVICE_JWT_ACTIVE_KID             AUDIT_HASH_ACTIVE_KID             AUDIT_ANCHOR_BASE_URL             AUDIT_ANCHOR_NAMESPACE             KUBECONFIG_B64
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "missing production environment setting: $name" >&2
+              exit 1
+            fi
+          done
+
+          umask 077
+          printf '%s' "$KUBECONFIG_B64"             | base64 --decode             > "$RUNNER_TEMP/production-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig"             >> "$GITHUB_ENV"
+          export KUBECONFIG="$RUNNER_TEMP/production-kubeconfig"
+
+          kubectl config use-context "$KUBE_CONTEXT"
+          test "$(kubectl config current-context)" = "$KUBE_CONTEXT"
+
+          ACTUAL_SERVER="$(
+            kubectl config view               --minify               -o jsonpath='{.clusters[0].cluster.server}'
+          )"
+          test "$ACTUAL_SERVER" = "$KUBE_SERVER"
+
+          kubectl cluster-info >/dev/null
+
+          ENFORCED_POLICY="$(
+            kubectl get namespace "$K8S_NAMESPACE"               -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
+          )"
+          test "$ENFORCED_POLICY" = "restricted"
+
+      - name: Revalidate production secret contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE"             get secret creator-revenue-agent-secrets             -o json             > "$RUNNER_TEMP/production-secret.json"
+
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/production-secret.json"
+              ).read_text(encoding="utf-8")
+          )
+          encoded = payload.get("data", {})
+          required = {
+              "database_url",
+              "service_jwt_keys_json",
+              "verification_webhook_keys_json",
+              "audit_hash_keys_json",
+              "audit_anchor_token",
+              "audit_anchor_receipt_keys_json",
+          }
+          missing = sorted(required - set(encoded))
+          if missing:
+              raise SystemExit(
+                  "production application secret is missing keys: "
+                  + ", ".join(missing)
+              )
+
+          def decode(name: str) -> str:
+              return base64.b64decode(
+                  encoded[name],
+                  validate=True,
+              ).decode("utf-8")
+
+          database_url = decode("database_url")
+          if not database_url.startswith("postgresql+psycopg://"):
+              raise SystemExit("production database must use postgresql+psycopg")
+
+          jwt_keys = json.loads(decode("service_jwt_keys_json"))
+          audit_keys = json.loads(decode("audit_hash_keys_json"))
+          if os.environ["SERVICE_JWT_ACTIVE_KID"] not in jwt_keys:
+              raise SystemExit("active JWT key is missing")
+          if os.environ["AUDIT_HASH_ACTIVE_KID"] not in audit_keys:
+              raise SystemExit("active audit key is missing")
+
+          for name in (
+              "verification_webhook_keys_json",
+              "audit_anchor_receipt_keys_json",
+          ):
+              value = json.loads(decode(name))
+              if not isinstance(value, dict) or not value:
+                  raise SystemExit(f"invalid production key ring: {name}")
+
+          if not decode("audit_anchor_token"):
+              raise SystemExit("audit anchor token is empty")
+          PY
+
+          rm -f "$RUNNER_TEMP/production-secret.json"
+
+      - name: Run production migration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" apply             -f production-kubernetes/service-account.yaml
+
+          kubectl -n "$K8S_NAMESPACE"             delete job creator-revenue-agent-migrate             --ignore-not-found=true             --wait=true
+
+          kubectl -n "$K8S_NAMESPACE"             create -f production-kubernetes/migration-job.yaml
+
+          if ! kubectl -n "$K8S_NAMESPACE"             wait             --for=condition=complete             job/creator-revenue-agent-migrate             --timeout=10m
+          then
+            kubectl -n "$K8S_NAMESPACE"               describe job creator-revenue-agent-migrate || true
+            kubectl -n "$K8S_NAMESPACE"               logs job/creator-revenue-agent-migrate               --all-containers=true || true
+            exit 1
+          fi
+
+      - name: Roll out production application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl apply -k production-kubernetes
+
+          kubectl -n "$K8S_NAMESPACE"             rollout status deployment/creator-revenue-agent             --timeout=10m
+
+          kubectl -n "$K8S_NAMESPACE"             wait             --for=condition=Ready             pod             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             --timeout=5m
+
+          DEPLOYED_IMAGE="$(
+            kubectl -n "$K8S_NAMESPACE"               get deployment creator-revenue-agent               -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].image}'
+          )"
+          test "$DEPLOYED_IMAGE" = "$IMAGE_REF"
+
+          kubectl -n "$K8S_NAMESPACE"             get pods             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             -o json             > "$RUNNER_TEMP/production-pods.json"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected_digest = os.environ["IMAGE_REF"].split("@", 1)[1]
+          pods = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/production-pods.json"
+              ).read_text(encoding="utf-8")
+          )
+          image_ids = []
+          for pod in pods.get("items", []):
+              for status in pod.get("status", {}).get(
+                  "containerStatuses", []
+              ):
+                  if status.get("name") != "api":
+                      continue
+                  image_id = status.get("imageID", "")
+                  if expected_digest not in image_id:
+                      raise SystemExit(
+                          "production runtime imageID does not match attested digest"
+                      )
+                  image_ids.append(image_id)
+
+          if not image_ids:
+              raise SystemExit("no running production api imageIDs found")
+          PY
+
+      - name: Write production deployment evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE"             get deployment creator-revenue-agent             -o json             > "$RUNNER_TEMP/production-deployment.json"
+
+          kubectl -n "$K8S_NAMESPACE"             get pods             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             -o json             > "$RUNNER_TEMP/production-pods.json"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          def sha256(path: str) -> str:
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          deployment = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/production-deployment.json"
+              ).read_text(encoding="utf-8")
+          )
+          pods = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/production-pods.json"
+              ).read_text(encoding="utf-8")
+          )
+          metadata = deployment.get("metadata", {})
+          spec = deployment.get("spec", {})
+          status = deployment.get("status", {})
+          image_ids = sorted(
+              {
+                  state.get("imageID", "")
+                  for pod in pods.get("items", [])
+                  for state in pod.get(
+                      "status", {}
+                  ).get("containerStatuses", [])
+                  if state.get("name") == "api"
+                  and state.get("imageID")
+              }
+          )
+
+          payload = {
+              "version": "production-deployment-evidence-v1",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_commit": os.environ["SOURCE_COMMIT"],
+              "image_ref": os.environ["IMAGE_REF"],
+              "staging_run_id": int(os.environ["STAGING_RUN_ID"]),
+              "backup_reference": os.environ["BACKUP_REFERENCE"],
+              "change_reference": os.environ["CHANGE_REFERENCE"],
+              "kube_context": os.environ["KUBE_CONTEXT"],
+              "kube_server": os.environ["KUBE_SERVER"],
+              "namespace": os.environ["K8S_NAMESPACE"],
+              "deployment_uid": metadata.get("uid"),
+              "deployment_generation": metadata.get("generation"),
+              "observed_generation": status.get("observedGeneration"),
+              "desired_replicas": spec.get("replicas"),
+              "ready_replicas": status.get("readyReplicas", 0),
+              "runtime_image_ids": image_ids,
+              "staging_evidence_sha256": sha256(
+                  "staging-proof/staging-rollout-evidence.json"
+              ),
+              "promotion_evidence_sha256": sha256(
+                  "promotion-artifact/promotion-evidence.json"
+              ),
+              "production_application_sha256": sha256(
+                  "production-application.yaml"
+              ),
+              "production_validation_sha256": sha256(
+                  "production-validation.yaml"
+              ),
+              "generated_at": datetime.now(timezone.utc).isoformat(),
+          }
+
+          Path("production-deployment-evidence.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          sha256sum production-deployment-evidence.json             > production-deployment-evidence.json.sha256
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-deployment-${{ inputs.release_tag }}
+          path: |
+            production-kubernetes/
+            production-application.yaml
+            production-application.yaml.sha256
+            production-validation.yaml
+            production-validation.yaml.sha256
+            production-deployment-evidence.json
+            production-deployment-evidence.json.sha256
+          if-no-files-found: error
+          retention-days: 180
+
+      - name: Remove kubeconfig
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/production-kubeconfig"
