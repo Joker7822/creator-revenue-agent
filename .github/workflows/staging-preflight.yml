@@ -298,7 +298,7 @@ jobs:
             fi
           }
 
-          require_yes get namespace "$K8S_NAMESPACE"
+          require_yes get "namespace/$K8S_NAMESPACE"
           require_yes get secret/creator-revenue-agent-secrets \
             -n "$K8S_NAMESPACE"
           require_yes get secret/ghcr-pull \
@@ -321,6 +321,8 @@ jobs:
           require_yes get jobs.batch -n "$K8S_NAMESPACE"
           require_yes create jobs.batch -n "$K8S_NAMESPACE"
           require_yes delete jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch deployments.apps -n "$K8S_NAMESPACE"
           require_yes get pods -n "$K8S_NAMESPACE"
           require_yes list pods -n "$K8S_NAMESPACE"
           require_yes watch pods -n "$K8S_NAMESPACE"
@@ -328,7 +330,7 @@ jobs:
 
           require_no create secrets -n "$K8S_NAMESPACE"
           require_no patch secrets -n "$K8S_NAMESPACE"
-          require_no delete namespace "$K8S_NAMESPACE"
+          require_no delete "namespace/$K8S_NAMESPACE"
 
       - name: Verify checked-in pull-secret binding
         shell: bash

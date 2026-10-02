@@ -208,7 +208,7 @@ def validate_staging_preflight_workflow(
         "audit_anchor_receipt_keys_json",
         "ghcr-pull",
         "kubectl auth can-i",
-        "delete namespace",
+        "require_no delete",
         "create secrets",
     )
     for token in required:
