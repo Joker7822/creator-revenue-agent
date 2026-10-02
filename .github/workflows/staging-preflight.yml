@@ -95,7 +95,7 @@ jobs:
 
           ENFORCED_POLICY="$(
             kubectl get namespace "$K8S_NAMESPACE" \
-              -o jsonpath='{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}'
+              -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
           )"
           test "$ENFORCED_POLICY" = "restricted"
 

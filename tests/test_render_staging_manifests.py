@@ -98,7 +98,13 @@ def test_render_staging_bundle_rebinds_environment(
     assert deployment_text.count(IMAGE_REF) == 1
     assert migration_text.count(IMAGE_REF) == 1
 
-    service_account_text = (\n        output / "service-account.yaml"\n    ).read_text(encoding="utf-8")\n    assert "imagePullSecrets:" in service_account_text\n    assert "  - name: ghcr-pull" in service_account_text\n\n    metadata = json.loads(
+    service_account_text = (
+        output / "service-account.yaml"
+    ).read_text(encoding="utf-8")
+    assert "imagePullSecrets:" in service_account_text
+    assert "  - name: ghcr-pull" in service_account_text
+
+    metadata = json.loads(
         (output / "staging-metadata.json").read_text(
             encoding="utf-8"
         )

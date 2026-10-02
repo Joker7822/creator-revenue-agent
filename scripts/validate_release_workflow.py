@@ -223,7 +223,7 @@ def validate_staging_preflight_workflow(
         )
 
     if re.search(
-        r"uses:\\s+[^\\s]+@(v\\d+|main|master)\\b",
+        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
         text,
     ):
         errors.append(
