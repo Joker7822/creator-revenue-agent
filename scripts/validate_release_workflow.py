@@ -208,6 +208,7 @@ def validate_staging_preflight_workflow(
         "audit_anchor_receipt_keys_json",
         "ghcr-pull",
         "kubectl auth can-i",
+        "require_yes list jobs.batch",
         "require_no delete",
         "create secrets",
     )
