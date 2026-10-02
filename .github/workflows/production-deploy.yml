@@ -285,6 +285,90 @@ jobs:
           )"
           test "$ENFORCED_POLICY" = "restricted"
 
+      - name: Verify production GHCR pull secret
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" get secret ghcr-pull -o json             > "$RUNNER_TEMP/ghcr-pull.json"
+
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/ghcr-pull.json"
+              ).read_text(encoding="utf-8")
+          )
+          if payload.get("type") != "kubernetes.io/dockerconfigjson":
+              raise SystemExit(
+                  "ghcr-pull must be kubernetes.io/dockerconfigjson"
+              )
+          raw = payload.get("data", {}).get(".dockerconfigjson")
+          if not raw:
+              raise SystemExit("ghcr-pull is missing .dockerconfigjson")
+          config = json.loads(
+              base64.b64decode(raw, validate=True).decode("utf-8")
+          )
+          if "ghcr.io" not in config.get("auths", {}):
+              raise SystemExit(
+                  "ghcr-pull does not contain ghcr.io credentials"
+              )
+          PY
+
+          rm -f "$RUNNER_TEMP/ghcr-pull.json"
+
+      - name: Verify production deployer RBAC boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_yes() {
+            result="$(kubectl auth can-i "$@")"
+            if [ "$result" != "yes" ]; then
+              echo "required permission missing: $*" >&2
+              exit 1
+            fi
+          }
+
+          require_no() {
+            result="$(kubectl auth can-i "$@")"
+            if [ "$result" != "no" ]; then
+              echo "unexpected privileged permission: $*" >&2
+              exit 1
+            fi
+          }
+
+          require_yes get "namespace/$K8S_NAMESPACE"
+          require_yes get secret/creator-revenue-agent-secrets             -n "$K8S_NAMESPACE"
+          require_yes get secret/ghcr-pull             -n "$K8S_NAMESPACE"
+
+          for resource in             serviceaccounts             configmaps             services             deployments.apps             poddisruptionbudgets.policy             horizontalpodautoscalers.autoscaling             networkpolicies.networking.k8s.io
+          do
+            require_yes get "$resource" -n "$K8S_NAMESPACE"
+            require_yes create "$resource" -n "$K8S_NAMESPACE"
+            require_yes patch "$resource" -n "$K8S_NAMESPACE"
+          done
+
+          require_yes get jobs.batch -n "$K8S_NAMESPACE"
+          require_yes list jobs.batch -n "$K8S_NAMESPACE"
+          require_yes create jobs.batch -n "$K8S_NAMESPACE"
+          require_yes delete jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch deployments.apps -n "$K8S_NAMESPACE"
+          require_yes get pods -n "$K8S_NAMESPACE"
+          require_yes list pods -n "$K8S_NAMESPACE"
+          require_yes watch pods -n "$K8S_NAMESPACE"
+          require_yes get pods/log -n "$K8S_NAMESPACE"
+
+          require_no create secrets -n "$K8S_NAMESPACE"
+          require_no patch secrets -n "$K8S_NAMESPACE"
+          require_no delete "namespace/$K8S_NAMESPACE"
+
       - name: Revalidate production secret contract
         shell: bash
         run: |
