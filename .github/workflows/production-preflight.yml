@@ -1,0 +1,363 @@
+name: Production Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-preflight
+  cancel-in-progress: false
+
+jobs:
+  verify-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
+      KUBE_SERVER: ${{ vars.KUBE_SERVER }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      SERVICE_JWT_ACTIVE_KID: ${{ vars.SERVICE_JWT_ACTIVE_KID }}
+      AUDIT_HASH_ACTIVE_KID: ${{ vars.AUDIT_HASH_ACTIVE_KID }}
+      AUDIT_ANCHOR_BASE_URL: ${{ vars.AUDIT_ANCHOR_BASE_URL }}
+      AUDIT_ANCHOR_NAMESPACE: ${{ vars.AUDIT_ANCHOR_NAMESPACE }}
+      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
+        with:
+          version: "v1.31.4"
+
+      - name: Validate production environment settings
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for name in \
+            KUBE_CONTEXT \
+            KUBE_SERVER \
+            K8S_NAMESPACE \
+            SERVICE_JWT_ACTIVE_KID \
+            AUDIT_HASH_ACTIVE_KID \
+            AUDIT_ANCHOR_BASE_URL \
+            AUDIT_ANCHOR_NAMESPACE \
+            KUBECONFIG_B64
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "missing production environment setting: $name" >&2
+              exit 1
+            fi
+          done
+
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          anchor = urlsplit(os.environ["AUDIT_ANCHOR_BASE_URL"])
+          if anchor.scheme != "https" or not anchor.hostname:
+              raise SystemExit(
+                  "AUDIT_ANCHOR_BASE_URL must be an absolute HTTPS URL"
+              )
+          if anchor.username is not None or anchor.password is not None:
+              raise SystemExit(
+                  "AUDIT_ANCHOR_BASE_URL must not embed credentials"
+              )
+          PY
+
+      - name: Configure exact production cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          umask 077
+          printf '%s' "$KUBECONFIG_B64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/production-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig" \
+            >> "$GITHUB_ENV"
+          export KUBECONFIG="$RUNNER_TEMP/production-kubeconfig"
+
+          kubectl config use-context "$KUBE_CONTEXT"
+          test "$(kubectl config current-context)" = "$KUBE_CONTEXT"
+
+          ACTUAL_SERVER="$(
+            kubectl config view \
+              --minify \
+              -o jsonpath='{.clusters[0].cluster.server}'
+          )"
+          test "$ACTUAL_SERVER" = "$KUBE_SERVER"
+
+          kubectl cluster-info >/dev/null
+
+          ENFORCED_POLICY="$(
+            kubectl get namespace "$K8S_NAMESPACE" \
+              -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
+          )"
+          test "$ENFORCED_POLICY" = "restricted"
+
+      - name: Verify production application secret contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" \
+            get secret creator-revenue-agent-secrets \
+            -o json \
+            > "$RUNNER_TEMP/production-secret.json"
+
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/production-secret.json"
+              ).read_text(encoding="utf-8")
+          )
+          encoded = payload.get("data", {})
+          required = {
+              "database_url",
+              "service_jwt_keys_json",
+              "verification_webhook_keys_json",
+              "audit_hash_keys_json",
+              "audit_anchor_token",
+              "audit_anchor_receipt_keys_json",
+          }
+          missing = sorted(required - set(encoded))
+          if missing:
+              raise SystemExit(
+                  "production application secret is missing keys: "
+                  + ", ".join(missing)
+              )
+
+          def decode(name: str) -> str:
+              try:
+                  value = base64.b64decode(
+                      encoded[name],
+                      validate=True,
+                  ).decode("utf-8")
+              except Exception as exc:
+                  raise SystemExit(
+                      f"invalid encoded secret value: {name}"
+                  ) from exc
+              if not value:
+                  raise SystemExit(
+                      f"empty production secret value: {name}"
+                  )
+              return value
+
+          database_url = decode("database_url")
+          if not database_url.startswith("postgresql+psycopg://"):
+              raise SystemExit(
+                  "production database_url must use postgresql+psycopg"
+              )
+
+          def key_ring(name: str) -> dict[str, str]:
+              try:
+                  value = json.loads(decode(name))
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(
+                      f"invalid JSON key ring: {name}"
+                  ) from exc
+              if (
+                  not isinstance(value, dict)
+                  or not value
+                  or not all(
+                      isinstance(kid, str)
+                      and kid
+                      and isinstance(secret, str)
+                      and len(secret) >= 32
+                      for kid, secret in value.items()
+                  )
+              ):
+                  raise SystemExit(
+                      f"invalid key ring contract: {name}"
+                  )
+              return value
+
+          jwt_keys = key_ring("service_jwt_keys_json")
+          if os.environ["SERVICE_JWT_ACTIVE_KID"] not in jwt_keys:
+              raise SystemExit(
+                  "SERVICE_JWT_ACTIVE_KID is absent from production key ring"
+              )
+
+          audit_keys = key_ring("audit_hash_keys_json")
+          if os.environ["AUDIT_HASH_ACTIVE_KID"] not in audit_keys:
+              raise SystemExit(
+                  "AUDIT_HASH_ACTIVE_KID is absent from production key ring"
+              )
+
+          key_ring("audit_anchor_receipt_keys_json")
+
+          try:
+              webhook = json.loads(
+                  decode("verification_webhook_keys_json")
+              )
+          except json.JSONDecodeError as exc:
+              raise SystemExit(
+                  "invalid verification webhook key JSON"
+              ) from exc
+          if not isinstance(webhook, dict) or not webhook:
+              raise SystemExit(
+                  "verification webhook key ring must not be empty"
+              )
+          for provider, keys in webhook.items():
+              if (
+                  not isinstance(provider, str)
+                  or not provider
+                  or not isinstance(keys, dict)
+                  or not keys
+                  or not all(
+                      isinstance(kid, str)
+                      and kid
+                      and isinstance(secret, str)
+                      and len(secret) >= 32
+                      for kid, secret in keys.items()
+                  )
+              ):
+                  raise SystemExit(
+                      "invalid verification webhook key ring contract"
+                  )
+
+          decode("audit_anchor_token")
+          print("production secret contract and active key IDs validated")
+          PY
+
+          rm -f "$RUNNER_TEMP/production-secret.json"
+
+      - name: Verify GHCR pull secret
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n "$K8S_NAMESPACE" \
+            get secret ghcr-pull \
+            -o json \
+            > "$RUNNER_TEMP/ghcr-pull.json"
+
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(
+                  os.environ["RUNNER_TEMP"]
+                  + "/ghcr-pull.json"
+              ).read_text(encoding="utf-8")
+          )
+          if payload.get("type") != "kubernetes.io/dockerconfigjson":
+              raise SystemExit(
+                  "ghcr-pull must be kubernetes.io/dockerconfigjson"
+              )
+
+          raw = payload.get("data", {}).get(".dockerconfigjson")
+          if not raw:
+              raise SystemExit(
+                  "ghcr-pull is missing .dockerconfigjson"
+              )
+          config = json.loads(
+              base64.b64decode(raw, validate=True).decode("utf-8")
+          )
+          auths = config.get("auths", {})
+          if "ghcr.io" not in auths:
+              raise SystemExit(
+                  "ghcr-pull does not contain ghcr.io credentials"
+              )
+          print("GHCR pull secret contract validated")
+          PY
+
+          rm -f "$RUNNER_TEMP/ghcr-pull.json"
+
+      - name: Verify deployer RBAC boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_yes() {
+            result="$(kubectl auth can-i "$@")"
+            if [ "$result" != "yes" ]; then
+              echo "required permission missing: $*" >&2
+              exit 1
+            fi
+          }
+
+          require_no() {
+            result="$(kubectl auth can-i "$@")"
+            if [ "$result" != "no" ]; then
+              echo "unexpected privileged permission: $*" >&2
+              exit 1
+            fi
+          }
+
+          require_yes get "namespace/$K8S_NAMESPACE"
+          require_yes get secret/creator-revenue-agent-secrets \
+            -n "$K8S_NAMESPACE"
+          require_yes get secret/ghcr-pull \
+            -n "$K8S_NAMESPACE"
+
+          for resource in \
+            serviceaccounts \
+            configmaps \
+            services \
+            deployments.apps \
+            poddisruptionbudgets.policy \
+            horizontalpodautoscalers.autoscaling \
+            networkpolicies.networking.k8s.io
+          do
+            require_yes get "$resource" -n "$K8S_NAMESPACE"
+            require_yes create "$resource" -n "$K8S_NAMESPACE"
+            require_yes patch "$resource" -n "$K8S_NAMESPACE"
+          done
+
+          require_yes get jobs.batch -n "$K8S_NAMESPACE"
+          require_yes list jobs.batch -n "$K8S_NAMESPACE"
+          require_yes create jobs.batch -n "$K8S_NAMESPACE"
+          require_yes delete jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch jobs.batch -n "$K8S_NAMESPACE"
+          require_yes watch deployments.apps -n "$K8S_NAMESPACE"
+          require_yes get pods -n "$K8S_NAMESPACE"
+          require_yes list pods -n "$K8S_NAMESPACE"
+          require_yes watch pods -n "$K8S_NAMESPACE"
+          require_yes get pods/log -n "$K8S_NAMESPACE"
+
+          require_no create secrets -n "$K8S_NAMESPACE"
+          require_no patch secrets -n "$K8S_NAMESPACE"
+          require_no delete "namespace/$K8S_NAMESPACE"
+
+      - name: Verify checked-in pull-secret binding
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -F "imagePullSecrets:" \
+            deploy/kubernetes/service-account.yaml
+          grep -F "  - name: ghcr-pull" \
+            deploy/kubernetes/service-account.yaml
+
+      - name: Report preflight success
+        shell: bash
+        run: |
+          {
+            echo "## Production preflight passed"
+            echo
+            echo "- exact kube context/server binding verified"
+            echo "- namespace Pod Security is restricted"
+            echo "- application secret contract and active key IDs verified"
+            echo "- GHCR pull credential contract verified"
+            echo "- required deployer RBAC verified"
+            echo "- namespace/secret mutation privileges rejected"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove kubeconfig
+        if: ${{ always() }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/production-kubeconfig"
