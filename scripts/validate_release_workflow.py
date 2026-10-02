@@ -11,6 +11,8 @@ WORKFLOWS = (
     Path(".github/workflows/promote.yml"),
     Path(".github/workflows/staging-release-rehearsal.yml"),
     Path(".github/workflows/staging-preflight.yml"),
+    Path(".github/workflows/production-preflight.yml"),
+    Path(".github/workflows/production-deploy.yml"),
 )
 
 USES_LINE = re.compile(
@@ -234,6 +236,115 @@ def validate_staging_preflight_workflow(
     return errors
 
 
+
+def validate_production_preflight_workflow(
+    path: Path,
+) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+
+    required = (
+        "workflow_dispatch:",
+        "group: production-preflight",
+        "environment: production",
+        "KUBECONFIG_B64",
+        "KUBE_CONTEXT",
+        "KUBE_SERVER",
+        "K8S_NAMESPACE",
+        "SERVICE_JWT_ACTIVE_KID",
+        "AUDIT_HASH_ACTIVE_KID",
+        "AUDIT_ANCHOR_BASE_URL",
+        "AUDIT_ANCHOR_NAMESPACE",
+        "kubectl config use-context",
+        "pod-security",
+        "creator-revenue-agent-secrets",
+        "service_jwt_keys_json",
+        "audit_hash_keys_json",
+        "audit_anchor_receipt_keys_json",
+        "ghcr-pull",
+        "kubectl auth can-i",
+        "require_yes list jobs.batch",
+        "require_no delete",
+        "create secrets",
+    )
+    for token in required:
+        if token not in text:
+            errors.append(
+                f"{path}: missing production preflight invariant: {token}"
+            )
+
+    if "kubectl apply" in text or "kubectl create" in text:
+        errors.append(
+            f"{path}: production preflight must not mutate the cluster"
+        )
+
+    if re.search(
+        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+        text,
+    ):
+        errors.append(
+            f"{path}: mutable GitHub Action ref is forbidden"
+        )
+
+    return errors
+
+
+def validate_production_deploy_workflow(
+    path: Path,
+) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    errors: list[str] = []
+
+    required = (
+        "workflow_dispatch:",
+        "staging_run_id:",
+        "backup_reference:",
+        "change_reference:",
+        "group: production-deployment",
+        "uses: ./.github/workflows/promote.yml",
+        "target_environment: production",
+        "environment: production",
+        "Staging Release Rehearsal",
+        "staging-rollout-evidence.json.sha256",
+        "ready_replicas",
+        "runtime_image_ids",
+        "promotion-evidence.json.sha256",
+        "scripts/render_production_manifests.py",
+        "production-validation.yaml",
+        "scripts/validate_kubernetes.sh",
+        "kubeconform",
+        "KUBECONFIG_B64",
+        "kubectl config use-context",
+        "creator-revenue-agent-secrets",
+        "migration-job.yaml",
+        "kubectl apply -k production-kubernetes",
+        "rollout status",
+        "imageID",
+        "production-deployment-evidence-v1",
+        "production-deployment-evidence.json",
+    )
+    for token in required:
+        if token not in text:
+            errors.append(
+                f"{path}: missing production deployment invariant: {token}"
+            )
+
+    if ":latest" in text:
+        errors.append(
+            f"{path}: :latest image tags are forbidden"
+        )
+
+    if re.search(
+        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+        text,
+    ):
+        errors.append(
+            f"{path}: mutable GitHub Action ref is forbidden"
+        )
+
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     for workflow in WORKFLOWS:
@@ -262,6 +373,26 @@ def main() -> int:
     if preflight.is_file():
         errors.extend(
             validate_staging_preflight_workflow(preflight)
+        )
+
+    production_preflight = Path(
+        ".github/workflows/production-preflight.yml"
+    )
+    if production_preflight.is_file():
+        errors.extend(
+            validate_production_preflight_workflow(
+                production_preflight
+            )
+        )
+
+    production_deploy = Path(
+        ".github/workflows/production-deploy.yml"
+    )
+    if production_deploy.is_file():
+        errors.extend(
+            validate_production_deploy_workflow(
+                production_deploy
+            )
         )
 
     if errors:
