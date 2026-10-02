@@ -324,6 +324,23 @@ ghcr.io/<owner>/creator-revenue-agent@sha256:<digest>
 Use that same digest for both the Kubernetes migration Job and Deployment. Verify the GitHub build-provenance and SBOM attestations before traffic cutover. See `RELEASE_SECURITY.md`.
 
 
+## Production deployment automation
+
+The repository includes two production workflows:
+
+```text
+.github/workflows/production-preflight.yml
+.github/workflows/production-deploy.yml
+```
+
+Production deployment requires the exact successful staging rehearsal
+evidence for the same release tag, source commit, and immutable image digest
+before migration or rollout. It also records the external database backup
+reference and approved change reference in checksummed deployment evidence.
+
+See `PRODUCTION_DEPLOYMENT.md` for the Environment settings, cluster/Secret
+prerequisites, RBAC contract, and first-rollout sequence.
+
 ## Staging release rehearsal
 
 A successful real tag release is automatically rehearsed through the same
