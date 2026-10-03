@@ -281,16 +281,20 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   project                            = var.project_id
 
   attribute_mapping = {
-    "google.subject"             = "assertion.sub"
-    "attribute.repository"       = "assertion.repository"
-    "attribute.repository_owner" = "assertion.repository_owner"
-    "attribute.ref"              = "assertion.ref"
+    "google.subject"                = "assertion.sub"
+    "attribute.repository"          = "assertion.repository"
+    "attribute.repository_id"       = "assertion.repository_id"
+    "attribute.repository_owner"    = "assertion.repository_owner"
+    "attribute.repository_owner_id" = "assertion.repository_owner_id"
+    "attribute.ref"                 = "assertion.ref"
   }
 
   attribute_condition = join(" && ", [
     "assertion.repository == '${var.github_repository}'",
-    "assertion.repository_owner == '${split("/", var.github_repository)[0]}'",
+    "assertion.repository_id == '${var.github_repository_id}'",
+    "assertion.repository_owner_id == '${var.github_repository_owner_id}'",
     "assertion.ref == 'refs/heads/main'",
+    "assertion.sub.endsWith(':environment:production')",
   ])
 
   oidc {
@@ -327,7 +331,7 @@ resource "google_service_account_iam_member" "github_wif" {
   member = (
     "principalSet://iam.googleapis.com/projects/${data.google_project.application.number}"
     + "/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}"
-    + "/attribute.repository/${var.github_repository}"
+    + "/attribute.repository_id/${var.github_repository_id}"
   )
 }
 
