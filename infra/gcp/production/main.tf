@@ -20,6 +20,7 @@ locals {
   application_services = toset([
     "compute.googleapis.com",
     "container.googleapis.com",
+    "iam.googleapis.com",
     "iamcredentials.googleapis.com",
     "secretmanager.googleapis.com",
     "servicenetworking.googleapis.com",
@@ -233,10 +234,10 @@ resource "google_sql_database_instance" "production" {
 }
 
 resource "google_sql_database" "application" {
-  name      = var.cloud_sql_database_name
-  instance  = google_sql_database_instance.production.name
-  charset   = "UTF8"
-  project   = var.project_id
+  name            = var.cloud_sql_database_name
+  instance        = google_sql_database_instance.production.name
+  charset         = "UTF8"
+  project         = var.project_id
   deletion_policy = "ABANDON"
 }
 
@@ -267,6 +268,7 @@ resource "google_iam_workload_identity_pool" "github" {
   project                   = var.project_id
 
   depends_on = [
+    google_project_service.application["iam.googleapis.com"],
     google_project_service.application["iamcredentials.googleapis.com"],
     google_project_service.application["sts.googleapis.com"],
   ]
@@ -323,8 +325,8 @@ resource "google_service_account_iam_member" "github_wif" {
   service_account_id = google_service_account.github_deployer.name
   role               = "roles/iam.workloadIdentityUser"
   member = (
-    "principalSet://iam.googleapis.com/projects/${data.google_project.application.number}" 
-    + "/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}" 
+    "principalSet://iam.googleapis.com/projects/${data.google_project.application.number}"
+    + "/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}"
     + "/attribute.repository/${var.github_repository}"
   )
 }
