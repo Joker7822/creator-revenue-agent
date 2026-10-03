@@ -15,13 +15,21 @@ WORKFLOWS = (
     Path(".github/workflows/production-deploy.yml"),
 )
 
-USES_LINE = re.compile(
-    r"^\s*(?:-\s*)?uses:\s+([^\s#]+)"
-)
+USES_LINE = re.compile(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)")
+PINNED_ACTION = re.compile(r"^[^\s@]+@([0-9a-f]{40})$")
 
-PINNED_ACTION = re.compile(
-    r"^[^\s@]+@([0-9a-f]{40})$"
-)
+
+def require_tokens(
+    path: Path,
+    text: str,
+    tokens: tuple[str, ...],
+    label: str,
+) -> list[str]:
+    return [
+        f"{path}: missing {label} invariant: {token}"
+        for token in tokens
+        if token not in text
+    ]
 
 
 def validate_pinned_actions(path: Path) -> list[str]:
@@ -33,11 +41,9 @@ def validate_pinned_actions(path: Path) -> list[str]:
         match = USES_LINE.match(line)
         if match is None:
             continue
-
         action_ref = match.group(1)
         if action_ref.startswith("./"):
             continue
-
         if PINNED_ACTION.fullmatch(action_ref) is None:
             errors.append(
                 f"{path}:{line_number}: external action must be pinned "
@@ -46,302 +52,252 @@ def validate_pinned_actions(path: Path) -> list[str]:
     return errors
 
 
+def reject_mutable_action_refs(path: Path, text: str) -> list[str]:
+    if re.search(r"uses:\s+[^\s]+@(v\d+|main|master)\b", text):
+        return [f"{path}: mutable GitHub Action ref is forbidden"]
+    return []
+
+
 def validate_release_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "packages: write",
-        "id-token: write",
-        "attestations: write",
-        "push-to-registry: true",
-        "actions/attest-build-provenance@",
-        "actions/attest-sbom@",
-        "subject-digest: ${{ env.IMAGE_DIGEST }}",
-        "release-sbom.cdx.json",
-        "IMAGE_REF=",
-        "git merge-base --is-ancestor",
+    errors = require_tokens(
+        path,
+        text,
+        (
+            "packages: write",
+            "id-token: write",
+            "attestations: write",
+            "push-to-registry: true",
+            "actions/attest-build-provenance@",
+            "actions/attest-sbom@",
+            "subject-digest: ${{ env.IMAGE_DIGEST }}",
+            "release-sbom.cdx.json",
+            "IMAGE_REF=",
+            "git merge-base --is-ancestor",
+        ),
+        "release",
     )
-    for token in required:
-        if token not in text:
-            errors.append(
-                f"{path}: missing release invariant: {token}"
-            )
-
     if ":latest" in text:
         errors.append(f"{path}: :latest image tags are forbidden")
-
-    if re.search(r"uses:\s+[^\s]+@(v\d+|main|master)\b", text):
-        errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
-        )
-
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
 def validate_promotion_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "workflow_call:",
-        "target_environment:",
-        "production|staging",
-        "environment: ${{ inputs.target_environment }}",
-        "attestations: read",
-        "packages: read",
-        "refs/heads/main",
-        "gh attestation verify",
-        "--signer-workflow",
-        ".github/workflows/release.yml",
-        "--source-ref",
-        "--source-digest",
-        "--deny-self-hosted-runners",
-        '--predicate-type "https://cyclonedx.org/bom"',
-        "scripts/render_release_manifests.py",
-        "verified-application.yaml",
-        "scripts/validate_kubernetes.sh",
-        "kubeconform",
-        "promotion-evidence.json",
-    )
-    for token in required:
-        if token not in text:
-            errors.append(
-                f"{path}: missing promotion invariant: {token}"
-            )
-
-    if ":latest" in text:
-        errors.append(
-            f"{path}: :latest image tags are forbidden"
-        )
-
-    if re.search(
-        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+    errors = require_tokens(
+        path,
         text,
-    ):
-        errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
-        )
-
+        (
+            "workflow_call:",
+            "target_environment:",
+            "production|staging",
+            "environment: ${{ inputs.target_environment }}",
+            "attestations: read",
+            "packages: read",
+            "refs/heads/main",
+            "gh attestation verify",
+            "--signer-workflow",
+            ".github/workflows/release.yml",
+            "--source-ref",
+            "--source-digest",
+            "--deny-self-hosted-runners",
+            '--predicate-type "https://cyclonedx.org/bom"',
+            "scripts/render_release_manifests.py",
+            "verified-application.yaml",
+            "scripts/validate_kubernetes.sh",
+            "kubeconform",
+            "promotion-evidence.json",
+        ),
+        "promotion",
+    )
+    if ":latest" in text:
+        errors.append(f"{path}: :latest image tags are forbidden")
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
-def validate_staging_rehearsal_workflow(
-    path: Path,
-) -> list[str]:
+def validate_staging_rehearsal_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "workflow_run:",
-        "Release Image",
-        "types:",
-        "- completed",
-        "actions: read",
-        "group: staging-release-rehearsal",
-        "cancel-in-progress: false",
-        "github.event.workflow_run.conclusion == 'success'",
-        "release-evidence.json.sha256",
-        "release-sbom.cdx.json.sha256",
-        "git merge-base --is-ancestor",
-        "uses: ./.github/workflows/promote.yml",
-        "target_environment: staging",
-        "environment: staging",
-        "KUBECONFIG_B64",
-        "KUBE_CONTEXT",
-        "KUBE_SERVER",
-        "scripts/render_staging_manifests.py",
-        "scripts/validate_kubernetes.sh",
-        "SHA256SUMS",
-        "kubectl config use-context",
-        "creator-revenue-agent-secrets",
-        "migration-job.yaml",
-        "kubectl apply -k staging-kubernetes",
-        "rollout status",
-        "imageID",
-        "staging-rollout-evidence.json",
-    )
-    for token in required:
-        if token not in text:
-            errors.append(
-                f"{path}: missing staging rehearsal invariant: "
-                f"{token}"
-            )
-
-    if ":latest" in text:
-        errors.append(
-            f"{path}: :latest image tags are forbidden"
-        )
-
-    if re.search(
-        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+    errors = require_tokens(
+        path,
         text,
-    ):
-        errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
-        )
-
+        (
+            "workflow_run:",
+            "Release Image",
+            "types:",
+            "- completed",
+            "actions: read",
+            "group: staging-release-rehearsal",
+            "cancel-in-progress: false",
+            "github.event.workflow_run.conclusion == 'success'",
+            "release-evidence.json.sha256",
+            "release-sbom.cdx.json.sha256",
+            "git merge-base --is-ancestor",
+            "uses: ./.github/workflows/promote.yml",
+            "target_environment: staging",
+            "environment: staging",
+            "KUBECONFIG_B64",
+            "KUBE_CONTEXT",
+            "KUBE_SERVER",
+            "scripts/render_staging_manifests.py",
+            "scripts/validate_kubernetes.sh",
+            "SHA256SUMS",
+            "kubectl config use-context",
+            "creator-revenue-agent-secrets",
+            "migration-job.yaml",
+            "kubectl apply -k staging-kubernetes",
+            "rollout status",
+            "imageID",
+            "staging-rollout-evidence.json",
+        ),
+        "staging rehearsal",
+    )
+    if ":latest" in text:
+        errors.append(f"{path}: :latest image tags are forbidden")
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
-def validate_staging_preflight_workflow(
-    path: Path,
-) -> list[str]:
+def validate_staging_preflight_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "workflow_dispatch:",
-        "group: staging-preflight",
-        "environment: staging",
-        "KUBECONFIG_B64",
-        "KUBE_CONTEXT",
-        "KUBE_SERVER",
-        "K8S_NAMESPACE",
-        "SERVICE_JWT_ACTIVE_KID",
-        "AUDIT_HASH_ACTIVE_KID",
-        "AUDIT_ANCHOR_BASE_URL",
-        "AUDIT_ANCHOR_NAMESPACE",
-        "kubectl config use-context",
-        "pod-security",
-        "creator-revenue-agent-secrets",
-        "service_jwt_keys_json",
-        "audit_hash_keys_json",
-        "audit_anchor_receipt_keys_json",
-        "ghcr-pull",
-        "kubectl auth can-i",
-        "require_yes list jobs.batch",
-        "require_no delete",
-        "create secrets",
+    errors = require_tokens(
+        path,
+        text,
+        (
+            "workflow_dispatch:",
+            "group: staging-preflight",
+            "environment: staging",
+            "KUBECONFIG_B64",
+            "KUBE_CONTEXT",
+            "KUBE_SERVER",
+            "K8S_NAMESPACE",
+            "SERVICE_JWT_ACTIVE_KID",
+            "AUDIT_HASH_ACTIVE_KID",
+            "AUDIT_ANCHOR_BASE_URL",
+            "AUDIT_ANCHOR_NAMESPACE",
+            "kubectl config use-context",
+            "pod-security",
+            "creator-revenue-agent-secrets",
+            "service_jwt_keys_json",
+            "audit_hash_keys_json",
+            "audit_anchor_receipt_keys_json",
+            "ghcr-pull",
+            "kubectl auth can-i",
+            "require_yes list jobs.batch",
+            "require_no delete",
+            "create secrets",
+        ),
+        "staging preflight",
     )
-    for token in required:
-        if token not in text:
-            errors.append(
-                f"{path}: missing staging preflight invariant: {token}"
-            )
-
     if "kubectl apply" in text or "kubectl create" in text:
         errors.append(
             f"{path}: staging preflight must not mutate the cluster"
         )
-
-    if re.search(
-        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
-        text,
-    ):
-        errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
-        )
-
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
-
-def validate_production_preflight_workflow(
-    path: Path,
-) -> list[str]:
+def validate_production_preflight_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "workflow_dispatch:",
-        "group: production-preflight",
-        "environment: production",
-        "KUBECONFIG_B64",
-        "KUBE_CONTEXT",
-        "KUBE_SERVER",
-        "K8S_NAMESPACE",
-        "SERVICE_JWT_ACTIVE_KID",
-        "AUDIT_HASH_ACTIVE_KID",
-        "AUDIT_ANCHOR_BASE_URL",
-        "AUDIT_ANCHOR_NAMESPACE",
-        "kubectl config use-context",
-        "pod-security",
-        "creator-revenue-agent-secrets",
-        "service_jwt_keys_json",
-        "audit_hash_keys_json",
-        "audit_anchor_receipt_keys_json",
-        "ghcr-pull",
-        "kubectl auth can-i",
-        "require_yes list jobs.batch",
-        "require_no delete",
-        "create secrets",
+    errors = require_tokens(
+        path,
+        text,
+        (
+            "workflow_dispatch:",
+            "group: production-preflight",
+            "environment: production",
+            "id-token: write",
+            "GCP_PROJECT_ID",
+            "GCP_WIF_PROVIDER",
+            "GCP_DEPLOY_SERVICE_ACCOUNT",
+            "GKE_CLUSTER",
+            "GKE_LOCATION",
+            "K8S_NAMESPACE",
+            "SERVICE_JWT_ACTIVE_KID",
+            "AUDIT_HASH_ACTIVE_KID",
+            "AUDIT_ANCHOR_BASE_URL",
+            "AUDIT_ANCHOR_NAMESPACE",
+            "google-github-actions/auth@",
+            "google-github-actions/get-gke-credentials@",
+            "use_dns_based_endpoint: true",
+            "context_name: production",
+            "scripts/validate_production_cluster.sh",
+        ),
+        "production preflight",
     )
-    for token in required:
-        if token not in text:
+    forbidden = (
+        "KUBECONFIG_B64",
+        "secrets.KUBECONFIG_B64",
+        "kubectl config use-context",
+    )
+    for token in forbidden:
+        if token in text:
             errors.append(
-                f"{path}: missing production preflight invariant: {token}"
+                f"{path}: production preflight must not use legacy "
+                f"kubeconfig authentication: {token}"
             )
-
     if "kubectl apply" in text or "kubectl create" in text:
         errors.append(
             f"{path}: production preflight must not mutate the cluster"
         )
-
-    if re.search(
-        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
-        text,
-    ):
-        errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
-        )
-
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
-def validate_production_deploy_workflow(
-    path: Path,
-) -> list[str]:
+def validate_production_deploy_workflow(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
-    errors: list[str] = []
-
-    required = (
-        "workflow_dispatch:",
-        "staging_run_id:",
-        "backup_reference:",
-        "change_reference:",
-        "group: production-deployment",
-        "uses: ./.github/workflows/promote.yml",
-        "target_environment: production",
-        "environment: production",
-        "Staging Release Rehearsal",
-        "staging-rollout-evidence.json.sha256",
-        "ready_replicas",
-        "runtime_image_ids",
-        "promotion-evidence.json.sha256",
-        "scripts/render_production_manifests.py",
-        "production-validation.yaml",
-        "scripts/validate_kubernetes.sh",
-        "kubeconform",
-        "KUBECONFIG_B64",
-        "kubectl config use-context",
-        "creator-revenue-agent-secrets",
-        "migration-job.yaml",
-        "kubectl apply -k production-kubernetes",
-        "rollout status",
-        "imageID",
-        "production-deployment-evidence-v1",
-        "production-deployment-evidence.json",
-    )
-    for token in required:
-        if token not in text:
-            errors.append(
-                f"{path}: missing production deployment invariant: {token}"
-            )
-
-    if ":latest" in text:
-        errors.append(
-            f"{path}: :latest image tags are forbidden"
-        )
-
-    if re.search(
-        r"uses:\s+[^\s]+@(v\d+|main|master)\b",
+    errors = require_tokens(
+        path,
         text,
-    ):
+        (
+            "workflow_dispatch:",
+            "staging_run_id:",
+            "backup_reference:",
+            "change_reference:",
+            "group: production-deployment",
+            "uses: ./.github/workflows/promote.yml",
+            "target_environment: production",
+            "environment: production",
+            "id-token: write",
+            "GCP_PROJECT_ID",
+            "GCP_WIF_PROVIDER",
+            "GCP_DEPLOY_SERVICE_ACCOUNT",
+            "GKE_CLUSTER",
+            "GKE_LOCATION",
+            "google-github-actions/auth@",
+            "google-github-actions/get-gke-credentials@",
+            "use_dns_based_endpoint: true",
+            "context_name: production",
+            "Staging Release Rehearsal",
+            "staging-rollout-evidence.json.sha256",
+            "ready_replicas",
+            "runtime_image_ids",
+            "promotion-evidence.json.sha256",
+            "scripts/render_production_manifests.py",
+            "production-validation.yaml",
+            "scripts/validate_kubernetes.sh",
+            "kubeconform",
+            "scripts/validate_production_cluster.sh",
+            "migration-job.yaml",
+            "kubectl apply -k production-kubernetes",
+            "rollout status",
+            "imageID",
+            "production-deployment-evidence-v1",
+            '"gcp_project_id"',
+            '"gke_cluster"',
+            "production-deployment-evidence.json",
+        ),
+        "production deployment",
+    )
+    if "KUBECONFIG_B64" in text:
         errors.append(
-            f"{path}: mutable GitHub Action ref is forbidden"
+            f"{path}: production deployment must not use long-lived "
+            "KUBECONFIG_B64"
         )
-
+    if ":latest" in text:
+        errors.append(f"{path}: :latest image tags are forbidden")
+    errors.extend(reject_mutable_action_refs(path, text))
     return errors
 
 
@@ -361,18 +317,14 @@ def main() -> int:
     if promotion.is_file():
         errors.extend(validate_promotion_workflow(promotion))
 
-    staging = Path(
-        ".github/workflows/staging-release-rehearsal.yml"
-    )
+    staging = Path(".github/workflows/staging-release-rehearsal.yml")
     if staging.is_file():
-        errors.extend(
-            validate_staging_rehearsal_workflow(staging)
-        )
+        errors.extend(validate_staging_rehearsal_workflow(staging))
 
-    preflight = Path(".github/workflows/staging-preflight.yml")
-    if preflight.is_file():
+    staging_preflight = Path(".github/workflows/staging-preflight.yml")
+    if staging_preflight.is_file():
         errors.extend(
-            validate_staging_preflight_workflow(preflight)
+            validate_staging_preflight_workflow(staging_preflight)
         )
 
     production_preflight = Path(
@@ -390,9 +342,7 @@ def main() -> int:
     )
     if production_deploy.is_file():
         errors.extend(
-            validate_production_deploy_workflow(
-                production_deploy
-            )
+            validate_production_deploy_workflow(production_deploy)
         )
 
     if errors:
