@@ -18,13 +18,22 @@ generated/
 identity/
 consent/
 
-
 # Local secret mounts / deployment material
 secrets/
 deploy/secrets/
 *.dump
 *.dump.sha256
 
+# Terraform local state and real variable files must not enter Git.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+crash.*.log
+!*.tfvars.example
 
 # Generated supply-chain evidence
 sbom.cdx.json
