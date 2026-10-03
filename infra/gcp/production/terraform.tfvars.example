@@ -1,0 +1,17 @@
+# Copy this file to terraform.tfvars outside source control only after creating
+# the two production Google Cloud projects.
+
+project_id              = "creator-agent-production-REPLACE"
+audit_anchor_project_id = "creator-agent-audit-REPLACE"
+
+region = "asia-northeast1"
+
+# This is an operational/legal retention decision, not an application default.
+# Replace the quoted placeholder with the approved integer number of seconds
+# before terraform plan/apply.
+audit_anchor_retention_seconds = "REPLACE_WITH_APPROVED_RETENTION_SECONDS"
+
+# IMPORTANT: keep false for the initial apply. Changing this to true is
+# irreversible in Google Cloud and must only happen after the retention period
+# has been independently reviewed and approved.
+lock_audit_anchor_bucket = false
