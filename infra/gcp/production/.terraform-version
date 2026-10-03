@@ -1,3 +1,0 @@
-# Terraform is constrained by versions.tf. CI uses setup-terraform and validates
-# the current compatible CLI; production operators should use a reviewed 1.x
-# release satisfying >= 1.8.0, < 2.0.0.
