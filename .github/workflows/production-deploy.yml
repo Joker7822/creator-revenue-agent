@@ -29,6 +29,7 @@ permissions:
   actions: read
   packages: read
   attestations: read
+  id-token: write
 
 concurrency:
   group: production-deployment
@@ -54,14 +55,16 @@ jobs:
       STAGING_RUN_ID: ${{ inputs.staging_run_id }}
       BACKUP_REFERENCE: ${{ inputs.backup_reference }}
       CHANGE_REFERENCE: ${{ inputs.change_reference }}
-      KUBE_CONTEXT: ${{ vars.KUBE_CONTEXT }}
-      KUBE_SERVER: ${{ vars.KUBE_SERVER }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+      GKE_LOCATION: ${{ vars.GKE_LOCATION }}
       K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
       SERVICE_JWT_ACTIVE_KID: ${{ vars.SERVICE_JWT_ACTIVE_KID }}
       AUDIT_HASH_ACTIVE_KID: ${{ vars.AUDIT_HASH_ACTIVE_KID }}
       AUDIT_ANCHOR_BASE_URL: ${{ vars.AUDIT_ANCHOR_BASE_URL }}
       AUDIT_ANCHOR_NAMESPACE: ${{ vars.AUDIT_ANCHOR_NAMESPACE }}
-      KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -82,7 +85,30 @@ jobs:
 
           for value in "$BACKUP_REFERENCE" "$CHANGE_REFERENCE"; do
             test -n "$value"
-            test "$(printf '%s' "$value" | wc -l)" -eq 0
+            case "$value" in
+              *$'\n'*|*$'\r'*)
+                echo "production references must be single-line values" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          for name in \
+            GCP_PROJECT_ID \
+            GCP_WIF_PROVIDER \
+            GCP_DEPLOY_SERVICE_ACCOUNT \
+            GKE_CLUSTER \
+            GKE_LOCATION \
+            K8S_NAMESPACE \
+            SERVICE_JWT_ACTIVE_KID \
+            AUDIT_HASH_ACTIVE_KID \
+            AUDIT_ANCHOR_BASE_URL \
+            AUDIT_ANCHOR_NAMESPACE
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "missing production environment setting: $name" >&2
+              exit 1
+            fi
           done
 
           git fetch --force --tags origin
@@ -91,17 +117,13 @@ jobs:
           echo "$SOURCE_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
 
           IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY,,}"
-          case "${IMAGE_REF,,}" in
-            "$IMAGE_NAME"@sha256:*) ;;
-            *)
-              echo "production image must be this repository's immutable GHCR digest" >&2
-              exit 1
-              ;;
-          esac
+          IMAGE_REF="${IMAGE_REF,,}"
+          echo "$IMAGE_REF" | grep -Eq \
+            "^${IMAGE_NAME//./\\.}@sha256:[0-9a-f]{64}$"
 
           {
             echo "SOURCE_COMMIT=$SOURCE_COMMIT"
-            echo "IMAGE_REF=${IMAGE_REF,,}"
+            echo "IMAGE_REF=$IMAGE_REF"
           } >> "$GITHUB_ENV"
 
       - name: Require successful staging rehearsal evidence
@@ -111,7 +133,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh api             "repos/$GITHUB_REPOSITORY/actions/runs/$STAGING_RUN_ID"             > staging-run.json
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$STAGING_RUN_ID" \
+            > staging-run.json
 
           python - <<'PY'
           import json
@@ -122,15 +146,25 @@ jobs:
               Path("staging-run.json").read_text(encoding="utf-8")
           )
           if run.get("name") != "Staging Release Rehearsal":
-              raise SystemExit("staging_run_id is not a staging rehearsal")
+              raise SystemExit(
+                  "staging_run_id is not a staging rehearsal"
+              )
           if run.get("conclusion") != "success":
-              raise SystemExit("staging rehearsal did not complete successfully")
-          if run.get("repository", {}).get("full_name") != os.environ["GITHUB_REPOSITORY"]:
+              raise SystemExit(
+                  "staging rehearsal did not complete successfully"
+              )
+          if (
+              run.get("repository", {}).get("full_name")
+              != os.environ["GITHUB_REPOSITORY"]
+          ):
               raise SystemExit("staging rehearsal repository mismatch")
           PY
 
           mkdir -p staging-proof
-          gh run download "$STAGING_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "staging-rehearsal-$RELEASE_TAG"             --dir staging-proof
+          gh run download "$STAGING_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "staging-rehearsal-$RELEASE_TAG" \
+            --dir staging-proof
 
           cd staging-proof
           sha256sum --check staging-rollout-evidence.json.sha256
@@ -167,7 +201,9 @@ jobs:
           if not image_ids or not all(
               digest in image_id for image_id in image_ids
           ):
-              raise SystemExit("staging runtime digest evidence mismatch")
+              raise SystemExit(
+                  "staging runtime digest evidence mismatch"
+              )
           PY
 
       - name: Download verified production promotion handoff
@@ -178,7 +214,10 @@ jobs:
           set -euo pipefail
 
           mkdir -p promotion-artifact
-          gh run download "$GITHUB_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "verified-promotion-$RELEASE_TAG"             --dir promotion-artifact
+          gh run download "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "verified-promotion-$RELEASE_TAG" \
+            --dir promotion-artifact
 
           cd promotion-artifact
           sha256sum --check promotion-evidence.json.sha256
@@ -199,9 +238,9 @@ jobs:
           from pathlib import Path
 
           evidence = json.loads(
-              Path("promotion-artifact/promotion-evidence.json").read_text(
-                  encoding="utf-8"
-              )
+              Path(
+                  "promotion-artifact/promotion-evidence.json"
+              ).read_text(encoding="utf-8")
           )
           expected = {
               "version": "verified-promotion-v1",
@@ -221,235 +260,108 @@ jobs:
         run: |
           set -euo pipefail
 
-          python scripts/render_production_manifests.py             --source-dir promotion-artifact/verified-kubernetes             --output-dir production-kubernetes             --release-tag "$RELEASE_TAG"             --source-commit "$SOURCE_COMMIT"             --image-ref "$IMAGE_REF"             --namespace "$K8S_NAMESPACE"             --service-jwt-active-kid "$SERVICE_JWT_ACTIVE_KID"             --audit-hash-active-kid "$AUDIT_HASH_ACTIVE_KID"             --audit-anchor-base-url "$AUDIT_ANCHOR_BASE_URL"             --audit-anchor-namespace "$AUDIT_ANCHOR_NAMESPACE"
+          python scripts/render_production_manifests.py \
+            --source-dir promotion-artifact/verified-kubernetes \
+            --output-dir production-kubernetes \
+            --release-tag "$RELEASE_TAG" \
+            --source-commit "$SOURCE_COMMIT" \
+            --image-ref "$IMAGE_REF" \
+            --namespace "$K8S_NAMESPACE" \
+            --service-jwt-active-kid "$SERVICE_JWT_ACTIVE_KID" \
+            --audit-hash-active-kid "$AUDIT_HASH_ACTIVE_KID" \
+            --audit-anchor-base-url "$AUDIT_ANCHOR_BASE_URL" \
+            --audit-anchor-namespace "$AUDIT_ANCHOR_NAMESPACE"
 
-          kubectl kustomize production-kubernetes             > production-application.yaml
+          kubectl kustomize production-kubernetes \
+            > production-application.yaml
 
-          cat production-kubernetes/namespace.yaml             > production-validation.yaml
+          cat production-kubernetes/namespace.yaml \
+            > production-validation.yaml
           printf '\n---\n' >> production-validation.yaml
-          cat production-application.yaml             >> production-validation.yaml
+          cat production-application.yaml \
+            >> production-validation.yaml
           printf '\n---\n' >> production-validation.yaml
-          cat production-kubernetes/migration-job.yaml             >> production-validation.yaml
+          cat production-kubernetes/migration-job.yaml \
+            >> production-validation.yaml
 
-          bash scripts/validate_kubernetes.sh production-validation.yaml
+          bash scripts/validate_kubernetes.sh \
+            production-validation.yaml
 
-          docker run --rm             -v "$PWD:/work"             ghcr.io/yannh/kubeconform:v0.6.7             -strict             -summary             -kubernetes-version 1.31.0             /work/production-validation.yaml
+          docker run --rm \
+            -v "$PWD:/work" \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict \
+            -summary \
+            -kubernetes-version 1.31.0 \
+            /work/production-validation.yaml
 
-          sha256sum production-application.yaml             > production-application.yaml.sha256
-          sha256sum production-validation.yaml             > production-validation.yaml.sha256
+          sha256sum production-application.yaml \
+            > production-application.yaml.sha256
+          sha256sum production-validation.yaml \
+            > production-validation.yaml.sha256
 
-      - name: Configure exact production cluster
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+
+      - name: Acquire short-lived GKE credentials
+        uses: google-github-actions/get-gke-credentials@3da1e46a907576cefaa90c484278bb5b259dd395 # v3.0.0
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_LOCATION }}
+          context_name: production
+          namespace: ${{ env.K8S_NAMESPACE }}
+          use_dns_based_endpoint: true
+
+      - name: Verify production cluster contracts
         shell: bash
         run: |
           set -euo pipefail
-
-          for name in             KUBE_CONTEXT             KUBE_SERVER             K8S_NAMESPACE             SERVICE_JWT_ACTIVE_KID             AUDIT_HASH_ACTIVE_KID             AUDIT_ANCHOR_BASE_URL             AUDIT_ANCHOR_NAMESPACE             KUBECONFIG_B64
-          do
-            if [ -z "${!name:-}" ]; then
-              echo "missing production environment setting: $name" >&2
-              exit 1
-            fi
-          done
-
-          umask 077
-          printf '%s' "$KUBECONFIG_B64"             | base64 --decode             > "$RUNNER_TEMP/production-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/production-kubeconfig"             >> "$GITHUB_ENV"
-          export KUBECONFIG="$RUNNER_TEMP/production-kubeconfig"
-
-          kubectl config use-context "$KUBE_CONTEXT"
-          test "$(kubectl config current-context)" = "$KUBE_CONTEXT"
-
-          ACTUAL_SERVER="$(
-            kubectl config view               --minify               -o jsonpath='{.clusters[0].cluster.server}'
+          KUBE_CONTEXT="$(kubectl config current-context)"
+          KUBE_SERVER="$(
+            kubectl config view \
+              --minify \
+              -o jsonpath='{.clusters[0].cluster.server}'
           )"
-          test "$ACTUAL_SERVER" = "$KUBE_SERVER"
+          {
+            echo "KUBE_CONTEXT=$KUBE_CONTEXT"
+            echo "KUBE_SERVER=$KUBE_SERVER"
+          } >> "$GITHUB_ENV"
 
-          case "$KUBE_CONTEXT|$ACTUAL_SERVER" in
-            *docker-desktop*|*kubernetes.docker.internal*|*host.docker.internal*|*localhost*|*127.0.0.1*)
-              echo "production cluster must not point at a local Docker Desktop endpoint" >&2
-              exit 1
-              ;;
-          esac
-
-          case "$AUDIT_ANCHOR_BASE_URL" in
-            *host.docker.internal*|*localhost*|*.invalid*)
-              echo "production audit anchor must not use a local/test endpoint" >&2
-              exit 1
-              ;;
-          esac
-
-          kubectl cluster-info >/dev/null
-
-          ENFORCED_POLICY="$(
-            kubectl get namespace "$K8S_NAMESPACE"               -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}'
-          )"
-          test "$ENFORCED_POLICY" = "restricted"
-
-      - name: Verify production GHCR pull secret
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          kubectl -n "$K8S_NAMESPACE" get secret ghcr-pull -o json             > "$RUNNER_TEMP/ghcr-pull.json"
-
-          python - <<'PY'
-          import base64
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(
-              Path(
-                  os.environ["RUNNER_TEMP"]
-                  + "/ghcr-pull.json"
-              ).read_text(encoding="utf-8")
-          )
-          if payload.get("type") != "kubernetes.io/dockerconfigjson":
-              raise SystemExit(
-                  "ghcr-pull must be kubernetes.io/dockerconfigjson"
-              )
-          raw = payload.get("data", {}).get(".dockerconfigjson")
-          if not raw:
-              raise SystemExit("ghcr-pull is missing .dockerconfigjson")
-          config = json.loads(
-              base64.b64decode(raw, validate=True).decode("utf-8")
-          )
-          if "ghcr.io" not in config.get("auths", {}):
-              raise SystemExit(
-                  "ghcr-pull does not contain ghcr.io credentials"
-              )
-          PY
-
-          rm -f "$RUNNER_TEMP/ghcr-pull.json"
-
-      - name: Verify production deployer RBAC boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          require_yes() {
-            result="$(kubectl auth can-i "$@")"
-            if [ "$result" != "yes" ]; then
-              echo "required permission missing: $*" >&2
-              exit 1
-            fi
-          }
-
-          require_no() {
-            result="$(kubectl auth can-i "$@")"
-            if [ "$result" != "no" ]; then
-              echo "unexpected privileged permission: $*" >&2
-              exit 1
-            fi
-          }
-
-          require_yes get "namespace/$K8S_NAMESPACE"
-          require_yes get secret/creator-revenue-agent-secrets             -n "$K8S_NAMESPACE"
-          require_yes get secret/ghcr-pull             -n "$K8S_NAMESPACE"
-
-          for resource in             serviceaccounts             configmaps             services             deployments.apps             poddisruptionbudgets.policy             horizontalpodautoscalers.autoscaling             networkpolicies.networking.k8s.io
-          do
-            require_yes get "$resource" -n "$K8S_NAMESPACE"
-            require_yes create "$resource" -n "$K8S_NAMESPACE"
-            require_yes patch "$resource" -n "$K8S_NAMESPACE"
-          done
-
-          require_yes get jobs.batch -n "$K8S_NAMESPACE"
-          require_yes list jobs.batch -n "$K8S_NAMESPACE"
-          require_yes create jobs.batch -n "$K8S_NAMESPACE"
-          require_yes delete jobs.batch -n "$K8S_NAMESPACE"
-          require_yes watch jobs.batch -n "$K8S_NAMESPACE"
-          require_yes watch deployments.apps -n "$K8S_NAMESPACE"
-          require_yes get pods -n "$K8S_NAMESPACE"
-          require_yes list pods -n "$K8S_NAMESPACE"
-          require_yes watch pods -n "$K8S_NAMESPACE"
-          require_yes get pods/log -n "$K8S_NAMESPACE"
-
-          require_no create secrets -n "$K8S_NAMESPACE"
-          require_no patch secrets -n "$K8S_NAMESPACE"
-          require_no delete "namespace/$K8S_NAMESPACE"
-
-      - name: Revalidate production secret contract
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          kubectl -n "$K8S_NAMESPACE"             get secret creator-revenue-agent-secrets             -o json             > "$RUNNER_TEMP/production-secret.json"
-
-          python - <<'PY'
-          import base64
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(
-              Path(
-                  os.environ["RUNNER_TEMP"]
-                  + "/production-secret.json"
-              ).read_text(encoding="utf-8")
-          )
-          encoded = payload.get("data", {})
-          required = {
-              "database_url",
-              "service_jwt_keys_json",
-              "verification_webhook_keys_json",
-              "audit_hash_keys_json",
-              "audit_anchor_token",
-              "audit_anchor_receipt_keys_json",
-          }
-          missing = sorted(required - set(encoded))
-          if missing:
-              raise SystemExit(
-                  "production application secret is missing keys: "
-                  + ", ".join(missing)
-              )
-
-          def decode(name: str) -> str:
-              return base64.b64decode(
-                  encoded[name],
-                  validate=True,
-              ).decode("utf-8")
-
-          database_url = decode("database_url")
-          if not database_url.startswith("postgresql+psycopg://"):
-              raise SystemExit("production database must use postgresql+psycopg")
-
-          jwt_keys = json.loads(decode("service_jwt_keys_json"))
-          audit_keys = json.loads(decode("audit_hash_keys_json"))
-          if os.environ["SERVICE_JWT_ACTIVE_KID"] not in jwt_keys:
-              raise SystemExit("active JWT key is missing")
-          if os.environ["AUDIT_HASH_ACTIVE_KID"] not in audit_keys:
-              raise SystemExit("active audit key is missing")
-
-          for name in (
-              "verification_webhook_keys_json",
-              "audit_anchor_receipt_keys_json",
-          ):
-              value = json.loads(decode(name))
-              if not isinstance(value, dict) or not value:
-                  raise SystemExit(f"invalid production key ring: {name}")
-
-          if not decode("audit_anchor_token"):
-              raise SystemExit("audit anchor token is empty")
-          PY
-
-          rm -f "$RUNNER_TEMP/production-secret.json"
+          bash scripts/validate_production_cluster.sh
 
       - name: Run production migration
         shell: bash
         run: |
           set -euo pipefail
 
-          kubectl -n "$K8S_NAMESPACE" apply             -f production-kubernetes/service-account.yaml
+          kubectl -n "$K8S_NAMESPACE" apply \
+            -f production-kubernetes/service-account.yaml
 
-          kubectl -n "$K8S_NAMESPACE"             delete job creator-revenue-agent-migrate             --ignore-not-found=true             --wait=true
+          kubectl -n "$K8S_NAMESPACE" \
+            delete job creator-revenue-agent-migrate \
+            --ignore-not-found=true \
+            --wait=true
 
-          kubectl -n "$K8S_NAMESPACE"             create -f production-kubernetes/migration-job.yaml
+          kubectl -n "$K8S_NAMESPACE" \
+            create -f production-kubernetes/migration-job.yaml
 
-          if ! kubectl -n "$K8S_NAMESPACE"             wait             --for=condition=complete             job/creator-revenue-agent-migrate             --timeout=10m
+          if ! kubectl -n "$K8S_NAMESPACE" \
+            wait \
+            --for=condition=complete \
+            job/creator-revenue-agent-migrate \
+            --timeout=10m
           then
-            kubectl -n "$K8S_NAMESPACE"               describe job creator-revenue-agent-migrate || true
-            kubectl -n "$K8S_NAMESPACE"               logs job/creator-revenue-agent-migrate               --all-containers=true || true
+            kubectl -n "$K8S_NAMESPACE" \
+              describe job creator-revenue-agent-migrate || true
+            kubectl -n "$K8S_NAMESPACE" \
+              logs job/creator-revenue-agent-migrate \
+              --all-containers=true || true
             exit 1
           fi
 
@@ -460,16 +372,29 @@ jobs:
 
           kubectl apply -k production-kubernetes
 
-          kubectl -n "$K8S_NAMESPACE"             rollout status deployment/creator-revenue-agent             --timeout=10m
+          kubectl -n "$K8S_NAMESPACE" \
+            rollout status deployment/creator-revenue-agent \
+            --timeout=10m
 
-          kubectl -n "$K8S_NAMESPACE"             wait             --for=condition=Ready             pod             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             --timeout=5m
+          kubectl -n "$K8S_NAMESPACE" \
+            wait \
+            --for=condition=Ready \
+            pod \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            --timeout=5m
 
           DEPLOYED_IMAGE="$(
-            kubectl -n "$K8S_NAMESPACE"               get deployment creator-revenue-agent               -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].image}'
+            kubectl -n "$K8S_NAMESPACE" \
+              get deployment creator-revenue-agent \
+              -o jsonpath='{.spec.template.spec.containers[?(@.name=="api")].image}'
           )"
           test "$DEPLOYED_IMAGE" = "$IMAGE_REF"
 
-          kubectl -n "$K8S_NAMESPACE"             get pods             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             -o json             > "$RUNNER_TEMP/production-pods.json"
+          kubectl -n "$K8S_NAMESPACE" \
+            get pods \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            -o json \
+            > "$RUNNER_TEMP/production-pods.json"
 
           python - <<'PY'
           import json
@@ -496,9 +421,10 @@ jobs:
                           "production runtime imageID does not match attested digest"
                       )
                   image_ids.append(image_id)
-
           if not image_ids:
-              raise SystemExit("no running production api imageIDs found")
+              raise SystemExit(
+                  "no running production api imageIDs found"
+              )
           PY
 
       - name: Write production deployment evidence
@@ -506,9 +432,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          kubectl -n "$K8S_NAMESPACE"             get deployment creator-revenue-agent             -o json             > "$RUNNER_TEMP/production-deployment.json"
-
-          kubectl -n "$K8S_NAMESPACE"             get pods             -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api             -o json             > "$RUNNER_TEMP/production-pods.json"
+          kubectl -n "$K8S_NAMESPACE" \
+            get deployment creator-revenue-agent \
+            -o json \
+            > "$RUNNER_TEMP/production-deployment.json"
+          kubectl -n "$K8S_NAMESPACE" \
+            get pods \
+            -l app.kubernetes.io/name=creator-revenue-agent,app.kubernetes.io/component=api \
+            -o json \
+            > "$RUNNER_TEMP/production-pods.json"
 
           python - <<'PY'
           import hashlib
@@ -539,9 +471,9 @@ jobs:
               {
                   state.get("imageID", "")
                   for pod in pods.get("items", [])
-                  for state in pod.get(
-                      "status", {}
-                  ).get("containerStatuses", [])
+                  for state in pod.get("status", {}).get(
+                      "containerStatuses", []
+                  )
                   if state.get("name") == "api"
                   and state.get("imageID")
               }
@@ -555,6 +487,9 @@ jobs:
               "staging_run_id": int(os.environ["STAGING_RUN_ID"]),
               "backup_reference": os.environ["BACKUP_REFERENCE"],
               "change_reference": os.environ["CHANGE_REFERENCE"],
+              "gcp_project_id": os.environ["GCP_PROJECT_ID"],
+              "gke_cluster": os.environ["GKE_CLUSTER"],
+              "gke_location": os.environ["GKE_LOCATION"],
               "kube_context": os.environ["KUBE_CONTEXT"],
               "kube_server": os.environ["KUBE_SERVER"],
               "namespace": os.environ["K8S_NAMESPACE"],
@@ -585,7 +520,8 @@ jobs:
           )
           PY
 
-          sha256sum production-deployment-evidence.json             > production-deployment-evidence.json.sha256
+          sha256sum production-deployment-evidence.json \
+            > production-deployment-evidence.json.sha256
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -600,8 +536,3 @@ jobs:
             production-deployment-evidence.json.sha256
           if-no-files-found: error
           retention-days: 180
-
-      - name: Remove kubeconfig
-        if: ${{ always() }}
-        shell: bash
-        run: rm -f "$RUNNER_TEMP/production-kubeconfig"
