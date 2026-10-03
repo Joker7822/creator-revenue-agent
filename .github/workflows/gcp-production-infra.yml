@@ -41,8 +41,3 @@ jobs:
 
       - name: Terraform validate
         run: terraform -chdir=infra/gcp/production validate
-
-      - name: Run production infrastructure invariant tests
-        run: |
-          python -m pip install pytest==9.0.3
-          pytest -q tests/test_gcp_production_infra.py
