@@ -98,9 +98,31 @@ variable "cloud_sql_disk_size_gb" {
 }
 
 variable "github_repository" {
-  description = "GitHub repository allowed to federate into the production deploy service account."
+  description = "Human-readable GitHub repository name used for documentation and defense-in-depth claim checks."
   type        = string
   default     = "Joker7822/creator-revenue-agent"
+}
+
+variable "github_repository_id" {
+  description = "Immutable GitHub repository ID allowed to federate into production."
+  type        = string
+  default     = "1398816848"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_id))
+    error_message = "github_repository_id must be a numeric GitHub repository ID."
+  }
+}
+
+variable "github_repository_owner_id" {
+  description = "Immutable GitHub repository-owner ID allowed to federate into production."
+  type        = string
+  default     = "107754027"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_repository_owner_id))
+    error_message = "github_repository_owner_id must be a numeric GitHub owner ID."
+  }
 }
 
 variable "github_workload_identity_pool_id" {
