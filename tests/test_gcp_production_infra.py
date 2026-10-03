@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "infra" / "gcp" / "production"
 MAIN = (INFRA / "main.tf").read_text(encoding="utf-8")
 VARIABLES = (INFRA / "variables.tf").read_text(encoding="utf-8")
+VERSIONS = (INFRA / "versions.tf").read_text(encoding="utf-8")
 RBAC = (
     ROOT
     / "deploy"
@@ -57,10 +58,19 @@ def test_audit_anchor_storage_is_separate_and_worm_oriented() -> None:
     assert 'roles/storage.objectAdmin' not in MAIN
 
 
-def test_github_federation_is_repo_and_main_scoped() -> None:
+def test_github_federation_is_immutable_repo_and_environment_scoped() -> None:
     assert 'issuer_uri = "https://token.actions.githubusercontent.com/"' in MAIN
-    assert "assertion.repository == '${var.github_repository}'" in MAIN
+    assert 'attribute.repository_id' in MAIN
+    assert 'attribute.repository_owner_id' in MAIN
+    assert "assertion.repository_id == '${var.github_repository_id}'" in MAIN
+    assert (
+        "assertion.repository_owner_id == "
+        "'${var.github_repository_owner_id}'"
+        in MAIN
+    )
     assert "assertion.ref == 'refs/heads/main'" in MAIN
+    assert "assertion.sub.endsWith(':environment:production')" in MAIN
+    assert '/attribute.repository_id/${var.github_repository_id}' in MAIN
     assert '"container.clusters.connect"' in MAIN
     assert '"container.clusters.get"' in MAIN
 
@@ -68,6 +78,12 @@ def test_github_federation_is_repo_and_main_scoped() -> None:
 def test_terraform_does_not_store_application_secret_versions() -> None:
     assert 'google_secret_manager_secret_version' not in MAIN
     assert 'google_sql_user' not in MAIN
+
+
+def test_production_iac_versions_are_exactly_pinned() -> None:
+    assert 'required_version = "= 1.16.4"' in VERSIONS
+    assert 'version = "= 8.5.0"' in VERSIONS
+    assert 'terraform_version: "1.16.4"' in INFRA_WORKFLOW
 
 
 def test_gcp_deployer_rbac_preserves_secret_and_namespace_boundaries() -> None:
